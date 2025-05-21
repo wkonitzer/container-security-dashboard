@@ -14,7 +14,7 @@ kubectl create namespace monitoring
 ```
 3. Install Kube-Prometheus Stack:
 ```
-helm install kps prometheus-community/kube-prometheus-stack --namespace monitoring
+helm upgrade --install kps prometheus-community/kube-prometheus-stack --namespace monitoring -f helmvalues.yaml
 ```
 
 Access Grafana and Prometheus UIs
@@ -32,7 +32,7 @@ kubectl get secret --namespace monitoring kps-grafana -o jsonpath="{.data.admin-
 ```
 Prometheus:
 ```
-kubectl --namespace monitoring port-forward svc/kps-prometheus 9090:9090
+kubectl --namespace monitoring port-forward svc/kps-kube-prometheus-stack-prometheus 9090:9090
 ```
 Visit http://localhost:9090
 

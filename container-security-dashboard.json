@@ -25,22 +25,59 @@
       "datasource": "Prometheus",
       "targets": [
         {
-          "expr": "sum(node_container_image_info{vendor=\"Chainguard\"})",
+          "expr": "sum(node_container_image_info{vendor=\"Chainguard\"}) or vector(0)",
           "format": "time_series"
         }
       ]
     },
     {
-      "type": "timeseries",
+      "type": "bargauge",
       "title": "Potential Images to Convert (Non-Chainguard)",
-      "id": 3,
-      "datasource": "Prometheus",
+      "gridPos": {
+        "h": 10,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
       "targets": [
         {
-          "expr": "sum(node_container_image_info{vendor!=\"Chainguard\"})",
-          "format": "time_series"
+          "expr": "sum(node_container_image_info{vendor!=\"Chainguard\"}) by (image)",
+          "format": "time_series",
+          "intervalFactor": 2,
+          "refId": "A"
         }
-      ]
+      ],
+      "options": {
+        "orientation": "horizontal",
+        "displayMode": "basic",
+        "showUnfilled": true,
+        "minValue": 0,
+        "maxValue": null
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 5
+              },
+              {
+                "color": "red",
+                "value": 10
+              }
+            ]
+          }
+        },
+        "overrides": []
+      }
     },
     {
       "type": "heatmap",
@@ -60,7 +97,7 @@
       }
     },
     {
-      "type": "pie",
+      "type": "barguage",
       "title": "Container Vendor Breakdown",
       "id": 5,
       "datasource": "Prometheus",

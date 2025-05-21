@@ -1,0 +1,10 @@
+prometheus-node-exporter:
+  extraArgs:
+    - --collector.textfile.directory=/var/lib/node_exporter/textfile_collector
+  extraHostVolumeMounts:
+    - name: textfile-collector
+      hostPath: /var/lib/node_exporter/textfile_collector
+      type: DirectoryOrCreate
+      mountPath: /var/lib/node_exporter/textfile_collector
+      readOnly: true
+      mountPropagation: HostToContainer
