@@ -33,6 +33,6 @@ accounts:
 
 entrypoint:
   command: /bin/bash
-  args:
-    - -c
-    - "sleep infinity"
+
+cmd: |
+  sleep infinity
