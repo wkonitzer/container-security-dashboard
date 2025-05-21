@@ -1,0 +1,38 @@
+annotations:
+  org.opencontainers.image.title: "Container Security Metrics Collector"
+  org.opencontainers.image.description: "Collects Kubernetes image metadata, vendor, and CVEs for Prometheus textfile collector."
+  org.opencontainers.image.source: "https://github.com/wkonitzer/container-security-dashboard"
+  org.opencontainers.image.version: "1.0"
+  org.opencontainers.image.licenses: "MIT"
+
+archs:
+  - x86_64
+  - aarch64
+contents:
+  repositories:
+    - https://packages.wolfi.dev/os
+  keyring:
+    - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub    
+  packages:
+    - bash
+    - jq
+    - trivy
+    - go-crane
+    - cri-tools
+
+work-dir: /
+
+accounts:
+  run-as: nonroot
+  users:
+    - username: nonroot
+      uid: 10000
+  groups:
+    - groupname: nonroot
+      gid: 10000   
+
+entrypoint:
+  command: /bin/bash
+  args:
+    - -c
+    - "sleep infinity"

@@ -1,0 +1,150 @@
+{
+  "title": "Container Security Overview",
+  "uid": "container-security-overview",
+  "timezone": "browser",
+  "schemaVersion": 38,
+  "version": 2,
+  "refresh": "5m",
+  "panels": [
+    {
+      "type": "stat",
+      "title": "Total Running Containers",
+      "id": 1,
+      "datasource": "Prometheus",
+      "targets": [
+        {
+          "expr": "sum(node_container_image_info)",
+          "format": "time_series"
+        }
+      ]
+    },
+    {
+      "type": "stat",
+      "title": "Chainguard Containers",
+      "id": 2,
+      "datasource": "Prometheus",
+      "targets": [
+        {
+          "expr": "sum(node_container_image_info{vendor=\"Chainguard\"})",
+          "format": "time_series"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Potential Images to Convert (Non-Chainguard)",
+      "id": 3,
+      "datasource": "Prometheus",
+      "targets": [
+        {
+          "expr": "sum(node_container_image_info{vendor!=\"Chainguard\"})",
+          "format": "time_series"
+        }
+      ]
+    },
+    {
+      "type": "heatmap",
+      "title": "Container CVE Counts by Severity",
+      "id": 4,
+      "datasource": "Prometheus",
+      "targets": [
+        {
+          "expr": "sum by(image, severity) (container_cve_count)",
+          "format": "time_series"
+        }
+      ],
+      "heatmap": {
+        "color": {
+          "mode": "continuous-GrYlRd"
+        }
+      }
+    },
+    {
+      "type": "pie",
+      "title": "Container Vendor Breakdown",
+      "id": 5,
+      "datasource": "Prometheus",
+      "targets": [
+        {
+          "expr": "sum by(vendor) (node_container_image_info)",
+          "format": "time_series"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        }
+      }
+    },
+    {
+      "type": "barchart",
+      "title": "Top 10 Images With Most Critical CVEs",
+      "id": 6,
+      "datasource": "Prometheus",
+      "targets": [
+        {
+          "expr": "topk(10, sum by(image) (container_cve_count{severity=\"CRITICAL\"}))",
+          "format": "time_series"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        }
+      }
+    },
+    {
+      "type": "barchart",
+      "title": "Container Image Size",
+      "id": 7,
+      "datasource": "Prometheus",
+      "targets": [
+        {
+          "expr": "sum by(image,version) (node_container_image_size_bytes)",
+          "format": "time_series"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes"
+        }
+      }
+    },
+    {
+      "type": "table",
+      "title": "Image Inventory: Image, Version, Vendor, Size, CVEs",
+      "id": 8,
+      "datasource": "Prometheus",
+      "targets": [
+        {
+          "expr": "node_container_image_info",
+          "format": "time_series",
+          "refId": "A"
+        },
+        {
+          "expr": "node_container_image_size_bytes",
+          "format": "time_series",
+          "refId": "B"
+        },
+        {
+          "expr": "container_cve_count{severity=\"CRITICAL\"}",
+          "format": "time_series",
+          "refId": "C"
+        },
+        {
+          "expr": "container_cve_count{severity=\"HIGH\"}",
+          "format": "time_series",
+          "refId": "D"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        }
+      },
+      "options": {
+        "showHeader": true
+      }
+    }
+  ]
+}
