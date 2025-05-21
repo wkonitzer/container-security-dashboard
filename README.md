@@ -1,7 +1,9 @@
 # container-security-dashboard
 Dashboard for Chainguard images usage
 
-Quick Start: Install via Helm and Kubectl
+![My Logo](images/example.png)
+
+**Quick Start: Install via Helm and Kubectl**
 
 1. Add the Prometheus Community Helm repo:
 ```
@@ -17,7 +19,7 @@ kubectl create namespace monitoring
 helm upgrade --install kps prometheus-community/kube-prometheus-stack --namespace monitoring -f helmvalues.yaml
 ```
 
-Access Grafana and Prometheus UIs
+**Access Grafana and Prometheus UIs**
 
 Grafana:
 By default, it’s only accessible inside the cluster. To access it locally:
@@ -36,9 +38,17 @@ kubectl --namespace monitoring port-forward svc/kps-kube-prometheus-stack-promet
 ```
 Visit http://localhost:9090
 
-Install Container Security Dashboard Metrics Collector
+**Install Container Security Dashboard Metrics Collector**
 ```
 kubectl apply -f kubernetes-manifest.yaml
 ```
 
 Import container-security-dashboard.json into Grafana for dashbaords
+
+**Notes**
+Note this is configured to run on k0s, so the containerd socket is 
+```
+/run/k0s/containerd.sock
+```
+
+Adjust the Kubernetes manifest as appropriate if running on another system.
