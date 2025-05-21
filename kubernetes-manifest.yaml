@@ -6,9 +6,21 @@ metadata:
 data:
   collector-script.sh: |
     #!/bin/bash
-    set -e
+    #set -e
+
+    echo "Starting..."
     export CRI_RUNTIME_ENDPOINT=unix:///run/k0s/containerd.sock
+
+    ARCH=$(uname -m)
+    case "$ARCH" in
+      x86_64) PLATFORM="linux/amd64" ;;
+      aarch64) PLATFORM="linux/arm64" ;;
+      *) PLATFORM="linux/amd64" ;; # fallback
+    esac    
+
     while true; do
+      echo "$(date)"
+
       METRIC_FILE=/node-exporter/container-security.prom
       echo "# HELP node_container_image_info Container image information" > $METRIC_FILE
       echo "# TYPE node_container_image_info gauge" >> $METRIC_FILE
@@ -16,26 +28,56 @@ data:
       echo "# TYPE node_container_image_size_bytes gauge" >> $METRIC_FILE
       echo "# HELP container_cve_count Number of CVEs per container by severity" >> $METRIC_FILE
       echo "# TYPE container_cve_count gauge" >> $METRIC_FILE
-      IMAGES=$(crictl images -o json | jq -r '.images[].repoTags[]')
-      for IMAGE in $IMAGES; do
-        VENDOR=$(crane manifest "$IMAGE" 2>/dev/null | jq -r '.annotations["org.opencontainers.image.vendor"] // "unknown"')
-        NAME=$(echo "$IMAGE" | cut -d':' -f1)
-        VERSION=$(echo "$IMAGE" | cut -d':' -f2)
-        SIZE=$(crane manifest "$IMAGE" 2>/dev/null | jq '[.layers[].size] | add // 0')
-        echo "node_container_image_info{image=\"$NAME\",version=\"$VERSION\",vendor=\"$VENDOR\"} 1" >> $METRIC_FILE
-        echo "node_container_image_size_bytes{image=\"$NAME\",version=\"$VERSION\",vendor=\"$VENDOR\"} $SIZE" >> $METRIC_FILE
-        TRIVY_OUTPUT=$(trivy image --severity CRITICAL,HIGH,MEDIUM,LOW --format json "$IMAGE" 2>/dev/null || echo "")
-        if [ -n "$TRIVY_OUTPUT" ]; then
-          CRITICAL=$(echo "$TRIVY_OUTPUT" | jq '[.Results[].Vulnerabilities[]? | select(.Severity == "CRITICAL")] | length')
-          HIGH=$(echo "$TRIVY_OUTPUT" | jq '[.Results[].Vulnerabilities[]? | select(.Severity == "HIGH")] | length')
-          MEDIUM=$(echo "$TRIVY_OUTPUT" | jq '[.Results[].Vulnerabilities[]? | select(.Severity == "MEDIUM")] | length')
-          LOW=$(echo "$TRIVY_OUTPUT" | jq '[.Results[].Vulnerabilities[]? | select(.Severity == "LOW")] | length')
-          echo "container_cve_count{image=\"$NAME\",version=\"$VERSION\",severity=\"CRITICAL\"} $CRITICAL" >> $METRIC_FILE
-          echo "container_cve_count{image=\"$NAME\",version=\"$VERSION\",severity=\"HIGH\"} $HIGH" >> $METRIC_FILE
-          echo "container_cve_count{image=\"$NAME\",version=\"$VERSION\",severity=\"MEDIUM\"} $MEDIUM" >> $METRIC_FILE
-          echo "container_cve_count{image=\"$NAME\",version=\"$VERSION\",severity=\"LOW\"} $LOW" >> $METRIC_FILE
+
+      echo "Getting list of images..."
+      CRICTL_JSON=$(crictl images -o json 2>/dev/null)
+
+      if echo "$CRICTL_JSON" | jq -e '.' >/dev/null 2>&1; then
+        NUM_IMAGES=$(echo "$CRICTL_JSON" | jq '.images | length')
+        if [ "$NUM_IMAGES" -gt 0 ]; then
+          IMAGES=$(echo "$CRICTL_JSON" | jq -r '.images[]?.repoTags[]?' 2>/dev/null || true)
+        else
+          IMAGES=""
         fi
-      done
+      else
+        echo "ERROR: crictl did not return valid JSON. Aborting image scan."
+        echo "DEBUG: crictl output:"
+        echo "$CRICTL_JSON"        
+        IMAGES=""
+      fi
+
+      if [ -z "$IMAGES" ]; then
+        echo "No images found or could not connect to CRI endpoint."
+      else
+        for IMAGE in $IMAGES; do
+          echo "Image: $IMAGE"
+          echo "Extracting Vendor"
+          VENDOR=$(crane manifest "$IMAGE" 2>/dev/null | jq -r '.annotations["org.opencontainers.image.vendor"] // "unknown"')
+          NAME=$(echo "$IMAGE" | cut -d':' -f1)
+          VERSION=$(echo "$IMAGE" | cut -d':' -f2)
+
+          echo "Extracting size.."
+          SIZE=$(crane manifest "$IMAGE" --platform="$PLATFORM" 2>/dev/null | jq '[.layers[].size] | add // 0' 2>/dev/null || echo 0)
+          echo "node_container_image_info{image=\"$NAME\",version=\"$VERSION\",vendor=\"$VENDOR\"} 1" >> $METRIC_FILE
+          echo "node_container_image_size_bytes{image=\"$NAME\",version=\"$VERSION\",vendor=\"$VENDOR\"} $SIZE" >> $METRIC_FILE
+
+          echo "Running Trivy"
+          TRIVY_OUTPUT=$(trivy image --severity CRITICAL,HIGH,MEDIUM,LOW --format json "$IMAGE" 2>/dev/null || echo "")
+          if [ -n "$TRIVY_OUTPUT" ]; then
+            CRITICAL=$(echo "$TRIVY_OUTPUT" | jq '[.Results[]? | .Vulnerabilities? // [] | .[]? | select(.Severity == "CRITICAL")] | length' 2>/dev/null || echo 0)
+            HIGH=$(echo "$TRIVY_OUTPUT" | jq '[.Results[]? | .Vulnerabilities? // [] | .[]? | select(.Severity == "HIGH")] | length' 2>/dev/null || echo 0)
+            MEDIUM=$(echo "$TRIVY_OUTPUT" | jq '[.Results[]? | .Vulnerabilities? // [] | .[]? | select(.Severity == "MEDIUM")] | length' 2>/dev/null || echo 0)
+            LOW=$(echo "$TRIVY_OUTPUT" | jq '[.Results[]? | .Vulnerabilities? // [] | .[]? | select(.Severity == "LOW")] | length' 2>/dev/null || echo 0)
+            echo "container_cve_count{image=\"$NAME\",version=\"$VERSION\",severity=\"CRITICAL\"} $CRITICAL" >> $METRIC_FILE
+            echo "container_cve_count{image=\"$NAME\",version=\"$VERSION\",severity=\"HIGH\"} $HIGH" >> $METRIC_FILE
+            echo "container_cve_count{image=\"$NAME\",version=\"$VERSION\",severity=\"MEDIUM\"} $MEDIUM" >> $METRIC_FILE
+            echo "container_cve_count{image=\"$NAME\",version=\"$VERSION\",severity=\"LOW\"} $LOW" >> $METRIC_FILE
+          fi
+        echo "----"  
+        done
+      fi  
+
+      echo "Sleeping.."
       sleep 300
     done
 ---
