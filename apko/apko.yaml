@@ -19,6 +19,7 @@ contents:
     - trivy
     - crane
     - cri-tools
+    - busybox
 
 work-dir: /
 

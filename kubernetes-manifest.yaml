@@ -7,6 +7,7 @@ data:
   collector-script.sh: |
     #!/bin/bash
     set -e
+    export CRI_RUNTIME_ENDPOINT=unix:///run/k0s/containerd.sock
     while true; do
       METRIC_FILE=/node-exporter/container-security.prom
       echo "# HELP node_container_image_info Container image information" > $METRIC_FILE
@@ -58,7 +59,7 @@ spec:
             nodeSelectorTerms:
             - matchExpressions:
               - key: node-role.kubernetes.io/control-plane
-                operator: DoesNotExist      
+                operator: DoesNotExist                    
       containers:
         - name: collector
           image: ghcr.io/wkonitzer/container-security-dashboard:latest
@@ -84,5 +85,8 @@ spec:
             type: DirectoryOrCreate
         - name: containerd-sock
           hostPath:
-            path: /run/containerd/containerd.sock
+            path: /run/k0s/containerd.sock
             type: Socket
+      securityContext:
+        runAsUser: 0
+        runAsGroup: 0            
