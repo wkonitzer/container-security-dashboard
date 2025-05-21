@@ -9,14 +9,38 @@ data:
     #set -e
 
     echo "Starting..."
-    export CRI_RUNTIME_ENDPOINT=unix:///run/k0s/containerd.sock
+
+    for sock in \
+      /run/containerd/containerd.sock \
+      /run/k3s/containerd/containerd.sock \
+      /run/k0s/containerd.sock; do
+      if [ -S "$sock" ]; then
+        crictl --runtime-endpoint "unix://$sock" images >/dev/null 2>&1
+        if [ $? -eq 0 ]; then
+          export CONTAINER_RUNTIME_ENDPOINT="unix://$sock"
+          export IMAGE_SERVICE_ENDPOINT="unix://$sock"
+          echo "Detected working CRI endpoint=$CONTAINER_RUNTIME_ENDPOINT"
+          break
+        fi
+      fi
+    done
+
+    if [ -z "$CONTAINER_RUNTIME_ENDPOINT" ]; then
+      echo "No working containerd socket found!"
+      exit 1
+    fi
 
     ARCH=$(uname -m)
     case "$ARCH" in
       x86_64) PLATFORM="linux/amd64" ;;
       aarch64) PLATFORM="linux/arm64" ;;
       *) PLATFORM="linux/amd64" ;; # fallback
-    esac    
+    esac
+
+    CACHE_FILE="/tmp/image-shas.json"
+    TMP_CACHE="/tmp/image-shas.tmp.json"
+    touch "$CACHE_FILE"
+    if [ ! -s "$CACHE_FILE" ]; then echo '{}' > "$CACHE_FILE"; fi
 
     while true; do
       echo "$(date)"
@@ -51,6 +75,20 @@ data:
       else
         for IMAGE in $IMAGES; do
           echo "Image: $IMAGE"
+
+          DIGEST=$(crane digest "$IMAGE" 2>/dev/null)
+          if [ -z "$DIGEST" ]; then
+            echo "Could not fetch digest for $IMAGE, skipping."
+            continue
+          fi
+
+          # Check if image:tag is in the cache, and digest matches
+          CACHED_DIGEST=$(jq -r --arg img "$IMAGE" '.[$img] // empty' "$CACHE_FILE")
+          if [ "$DIGEST" == "$CACHED_DIGEST" ]; then
+            echo "Digest unchanged, skipping scan for $IMAGE"
+            continue
+          fi          
+
           echo "Extracting Vendor"
           VENDOR=$(crane manifest "$IMAGE" 2>/dev/null | jq -r '.annotations["org.opencontainers.image.vendor"] // "unknown"')
           NAME=$(echo "$IMAGE" | cut -d':' -f1)
@@ -73,6 +111,10 @@ data:
             echo "container_cve_count{image=\"$NAME\",version=\"$VERSION\",severity=\"MEDIUM\"} $MEDIUM" >> $METRIC_FILE
             echo "container_cve_count{image=\"$NAME\",version=\"$VERSION\",severity=\"LOW\"} $LOW" >> $METRIC_FILE
           fi
+
+        echo "Update cache"
+          jq --arg img "$IMAGE" --arg dig "$DIGEST" '.[$img]=$dig' "$CACHE_FILE" > "$TMP_CACHE" && mv "$TMP_CACHE" "$CACHE_FILE"  
+        
         echo "----"  
         done
       fi  
@@ -94,14 +136,7 @@ spec:
     metadata:
       labels:
         app: container-security-metrics
-    spec:
-      affinity:
-        nodeAffinity:
-          requiredDuringSchedulingIgnoredDuringExecution:
-            nodeSelectorTerms:
-            - matchExpressions:
-              - key: node-role.kubernetes.io/control-plane
-                operator: DoesNotExist                    
+    spec:                   
       containers:
         - name: collector
           image: ghcr.io/wkonitzer/container-security-dashboard:latest
@@ -114,8 +149,14 @@ spec:
               subPath: collector-script.sh
             - name: textfile-collector
               mountPath: /node-exporter
-            - name: containerd-sock
+            - name: containerd-sock1
               mountPath: /run/containerd/containerd.sock
+            - name: containerd-sock2
+              mountPath: /run/k3s/containerd/containerd.sock
+            - name: containerd-sock3
+              mountPath: /run/k0s/containerd.sock 
+      nodeSelector:
+        kubernetes.io/os: linux                                                                    
       volumes:
         - name: script
           configMap:
@@ -125,10 +166,27 @@ spec:
           hostPath:
             path: /var/lib/node_exporter/textfile_collector
             type: DirectoryOrCreate
-        - name: containerd-sock
+        - name: containerd-sock1
+          hostPath:
+            path: /run/containerd/containerd.sock
+            type: ""
+        - name: containerd-sock2
+          hostPath:
+            path: /run/k3s/containerd/containerd.sock
+            type: ""
+        - name: containerd-sock3
           hostPath:
             path: /run/k0s/containerd.sock
-            type: Socket
+            type: ""                        
       securityContext:
         runAsUser: 0
-        runAsGroup: 0            
+        runAsGroup: 0
+      tolerations:
+        - operator: Exists
+          effect: NoSchedule
+  updateStrategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+      maxSurge: 0
+  revisionHistoryLimit: 10                   
