@@ -1,0 +1,96 @@
+name: Build Modular Container Security Metrics Collector
+
+permissions:
+  contents: read
+  packages: write
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  build-images:
+    strategy:
+      matrix:
+        arch:
+          - { runner: ubuntu-latest, arch: x86_64, docker_platform: linux/amd64, suffix: amd64 }
+          - { runner: ubuntu-24.04-arm, arch: aarch64, docker_platform: linux/arm64, suffix: arm64 }
+
+    runs-on: ${{ matrix.arch.runner }}
+
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Setup CLI Tools (apko)
+        run: |
+          sudo apt-get update && sudo apt-get install -y jq
+
+          install_latest_release() {
+            TOOL_NAME=$1
+            GH_REPO=$2
+
+            # Map architecture to GitHub release naming
+            if [ "${{ matrix.arch.arch }}" = "x86_64" ]; then
+              ARCH="linux_amd64"
+            elif [ "${{ matrix.arch.arch }}" = "aarch64" ]; then
+              ARCH="linux_arm64"
+            else
+              echo "Unsupported architecture: ${{ matrix.arch.arch }}"
+              exit 1
+            fi
+
+            echo "Fetching latest release for $TOOL_NAME ($ARCH)..."
+            LATEST=$(curl -s https://api.github.com/repos/${GH_REPO}/releases/latest | jq -r '.tag_name')
+
+            ASSET="${TOOL_NAME}_${LATEST#v}_${ARCH}.tar.gz"
+            URL="https://github.com/${GH_REPO}/releases/download/${LATEST}/${ASSET}"
+            OUT="${TOOL_NAME}.tar.gz"
+            curl -sL "$URL" -o "$OUT"
+            tar -xzf "$OUT"
+            sudo install -m0755 $(find . -type f -name "$TOOL_NAME" -executable) /usr/local/bin/$TOOL_NAME
+
+            echo "✅ Installed $TOOL_NAME to /usr/local/bin"
+          }
+
+          install_latest_release apko chainguard-dev/apko
+
+      - name: Verify CLI tools
+        run: |
+          command -v apko && apko version
+          '
+
+      - name: Build container image
+        run: |
+          APKO_RUNNER=none apko build \
+            --arch ${{ matrix.arch.arch }} \
+            apko/apko.yaml \
+            ghcr.io/${{ github.repository_owner }}/container-security-dashboard \
+            container-security-dashboard-${{ matrix.arch.suffix }}.tar
+
+      - name: Load container image
+        run: docker load < container-security-dashboard-${{ matrix.arch.suffix }}.tar
+
+      - name: Push architecture image
+        run: |
+          echo ${{ secrets.GITHUB_TOKEN }} | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+          docker push ghcr.io/${{ github.repository_owner }}/container-security-dashboard:latest-${{ matrix.arch.suffix }}
+
+  manifest:
+    needs: build-images
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: docker/login-action@v2
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create multi-arch manifest
+        run: |
+          docker buildx imagetools create \
+            --tag ghcr.io/${{ github.repository_owner }}/container-security-dashboard:latest \
+            ghcr.io/${{ github.repository_owner }}/container-security-dashboard:latest-amd64 \
+            ghcr.io/${{ github.repository_owner }}/container-security-dashboard:latest-arm64
