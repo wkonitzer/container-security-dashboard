@@ -61,7 +61,7 @@ spec:
                 operator: DoesNotExist      
       containers:
         - name: collector
-          image: ghcr.io/<your-org>/container-security-dashboard:latest
+          image: ghcr.io/wkonitzer/container-security-dashboard:latest
           command:
             - /bin/bash
             - /app/collector-script.sh
