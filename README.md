@@ -38,7 +38,7 @@ Visit http://localhost:9090
 
 Install Container Security Dashboard Metrics Collector
 ```
-kubectl apply -f cronjob.yaml
+kubectl apply -f kubernetes-manifest.yaml
 ```
 
 Import container-security-dashboard.json into Grafana for dashbaords
