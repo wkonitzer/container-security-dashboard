@@ -1,5 +1,7 @@
 # container-security-dashboard
-Dashboard for Chainguard images usage
+Dashboards for Chainguard images usage.
+
+A simple tool that runs inside your Kubernetes cluster to see Chainguard image usage. Example screenshots below. Depends on Prometheus, Prometheus Node Exporter, and Grafana, i.e. the typical Kube-Prometheus stack.
 
 ![screenshot1](images/screenshot1.png)
 ![screenshot2](images/screenshot2.png)
