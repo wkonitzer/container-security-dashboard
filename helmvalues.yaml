@@ -8,3 +8,6 @@ prometheus-node-exporter:
       mountPath: /var/lib/node_exporter/textfile_collector
       readOnly: true
       mountPropagation: HostToContainer
+  hostNetwork: false
+  service:
+    clusterIP: None

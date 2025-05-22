@@ -1,0 +1,239 @@
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: testing
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nginx-chainguard
+  namespace: testing
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: nginx-chainguard
+  template:
+    metadata:
+      labels:
+        app: nginx-chainguard
+    spec:
+      containers:
+      - name: nginx
+        image: cgr.dev/chainguard/nginx:latest
+        ports:
+        - containerPort: 80
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nginx-official
+  namespace: testing
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: nginx-official
+  template:
+    metadata:
+      labels:
+        app: nginx-official
+    spec:
+      containers:
+      - name: nginx
+        image: nginx:latest
+        ports:
+        - containerPort: 80
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: redis-chainguard
+  namespace: testing
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: redis-chainguard
+  template:
+    metadata:
+      labels:
+        app: redis-chainguard
+    spec:
+      containers:
+      - name: redis
+        image: cgr.dev/chainguard/redis:latest
+        ports:
+        - containerPort: 6379
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: redis-official
+  namespace: testing
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: redis-official
+  template:
+    metadata:
+      labels:
+        app: redis-official
+    spec:
+      containers:
+      - name: redis
+        image: redis:latest
+        ports:
+        - containerPort: 6379
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: postgres-chainguard
+  namespace: testing
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: postgres-chainguard
+  template:
+    metadata:
+      labels:
+        app: postgres-chainguard
+    spec:
+      containers:
+      - name: postgres
+        image: cgr.dev/chainguard/postgres:latest
+        env:
+        - name: POSTGRES_PASSWORD
+          value: "password"
+        ports:
+        - containerPort: 5432
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: postgres-official
+  namespace: testing
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: postgres-official
+  template:
+    metadata:
+      labels:
+        app: postgres-official
+    spec:
+      containers:
+      - name: postgres
+        image: postgres:latest
+        env:
+        - name: POSTGRES_PASSWORD
+          value: "password"
+        ports:
+        - containerPort: 5432
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: busybox-chainguard
+  namespace: testing
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: busybox-chainguard
+  template:
+    metadata:
+      labels:
+        app: busybox-chainguard
+    spec:
+      containers:
+      - name: busybox
+        image: cgr.dev/chainguard/busybox:latest
+        command: ["sleep", "3600"]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: busybox-official
+  namespace: testing
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: busybox-official
+  template:
+    metadata:
+      labels:
+        app: busybox-official
+    spec:
+      containers:
+      - name: busybox
+        image: busybox:latest
+        command: ["sleep", "3600"]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: alpine-official
+  namespace: testing
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: alpine-official
+  template:
+    metadata:
+      labels:
+        app: alpine-official
+    spec:
+      containers:
+      - name: alpine
+        image: alpine:latest
+        command: ["sleep", "3600"]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: httpd-official
+  namespace: testing
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: httpd-official
+  template:
+    metadata:
+      labels:
+        app: httpd-official
+    spec:
+      containers:
+      - name: httpd
+        image: httpd:latest
+        ports:
+        - containerPort: 80
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: node-official
+  namespace: testing
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: node-official
+  template:
+    metadata:
+      labels:
+        app: node-official
+    spec:
+      containers:
+      - name: node
+        image: node:latest
+        command: ["sleep", "3600"]
+
