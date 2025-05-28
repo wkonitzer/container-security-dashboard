@@ -18,6 +18,8 @@ CACHE_FILE="/tmp/image-metrics.json"
 TMP_METRIC_FILE="/tmp/container-security.prom.tmp"
 METRICS_CACHE="/tmp/latest_metrics.prom"
 CSV_CACHE="/tmp/latest_metrics.csv"
+INDEX_FILE="/tmp/cg-base-index.txt"
+MAX_AGE_HOURS=24
 OUTPUT_FILE="${1:-/data/adoption.csv}"  # Allow path as argument, default to /data/adoption.csv
 CLUSTER_NAME="${CLUSTER_NAME:-default_cluster}" # Cluster label for metrics (default: "default_cluster")
 [ -z "$CLUSTER_NAME" ] && CLUSTER_NAME="default_cluster"
@@ -52,6 +54,58 @@ cleanup() {
   exit 0
 }
 trap cleanup INT TERM
+
+ensure_cg_index() {
+  # Check if the index file exists and is fresh
+  if [ -f "$INDEX_FILE" ]; then
+    AGE_HOURS=$(( ($(date +%s) - $(stat -c %Y "$INDEX_FILE")) / 3600 ))
+    if [ "$AGE_HOURS" -lt "$MAX_AGE_HOURS" ]; then
+      info "Using cached Chainguard base layer index (last updated $AGE_HOURS hours ago): $INDEX_FILE"
+      return 0
+    else
+      info "Index file is stale ($AGE_HOURS hours old), rebuilding..."
+    fi
+  else
+    info "Index file missing, building for the first time..."
+  fi
+
+  CHAINCTL_OUTPUT=$(chainctl image list --output=terse) || { info "chainctl failed!"; exit 2; }
+  if [ -z "$CHAINCTL_OUTPUT" ]; then
+    info "No images returned by chainctl; aborting index build."
+    exit 2
+  fi
+  > "$INDEX_FILE"  
+
+  MAX_PROCS=8
+  count=0
+
+  while IFS= read -r IMAGE_LINE; do
+    (
+      IMAGE="${IMAGE_LINE%@sha256*}@${IMAGE_LINE##*@}"
+      BASE_LAYERS=$(crane config "$IMAGE" | jq -r '.rootfs.diff_ids[]' 2>/dev/null) || {
+        info "crane config failed for $IMAGE, skipping..."
+        exit
+      }
+      for LAYER in $BASE_LAYERS; do
+        echo "$LAYER $IMAGE_LINE"
+      done
+    ) >> "$INDEX_FILE" &
+    count=$((count+1))
+    if (( count >= MAX_PROCS )); then
+      wait -n
+      count=$((count-1))
+    fi
+  done <<< "$CHAINCTL_OUTPUT"
+
+  wait
+
+  if [ ! -s "$INDEX_FILE" ]; then
+    info "ERROR: Base index build failed or is empty!"
+    exit 3
+  fi
+
+  info "Chainguard base layer index rebuilt: $INDEX_FILE ($(wc -l < "$INDEX_FILE") lines)"
+}
 
 # Containerd socket detection
 detect_containerd_socket() {
@@ -113,13 +167,28 @@ collect_image_metrics() {
 $METRICS"
     else
       VENDOR=$(crane manifest "$IMAGE" 2>/dev/null | jq -r '.annotations["org.opencontainers.image.vendor"] // "unknown"')
+
+      if [[ "$VENDOR" != "chainguard" ]]; then
+        # Check all layers for a CG base match
+        LAYERS=$(crane config "$IMAGE" | jq -r '.rootfs.diff_ids[]')
+        for LAYER in $LAYERS; do
+          if grep -q "^$LAYER " "$INDEX_FILE"; then
+            VENDOR="chainguard"
+            break
+          fi
+        done
+        [[ -z "$VENDOR" ]] && VENDOR="unknown"
+      fi
+
       NAME=$(echo "$IMAGE" | cut -d':' -f1)
       VERSION=$(echo "$IMAGE" | cut -d':' -f2)
       SIZE=$(crane manifest "$IMAGE" --platform="$PLATFORM" 2>/dev/null | jq '[.layers[].size] | add // 0' 2>/dev/null || echo 0)
+      
       METRICS_LINES="$METRICS_LINES
 node_container_image_info{image=\"$NAME\",version=\"$VERSION\",vendor=\"$VENDOR\",cluster=\"$CLUSTER_NAME\"} 1"
       METRICS_LINES="$METRICS_LINES
 node_container_image_size_bytes{image=\"$NAME\",version=\"$VERSION\",vendor=\"$VENDOR\",cluster=\"$CLUSTER_NAME\"} $SIZE"
+      
       TRIVY_OUTPUT=$(trivy image --severity CRITICAL,HIGH,MEDIUM,LOW --format json "$IMAGE" 2>/dev/null || echo "")
       if [ -n "$TRIVY_OUTPUT" ]; then
         for sev in CRITICAL HIGH MEDIUM LOW; do
@@ -128,6 +197,7 @@ node_container_image_size_bytes{image=\"$NAME\",version=\"$VERSION\",vendor=\"$V
 container_cve_count{image=\"$NAME\",version=\"$VERSION\",severity=\"$sev\",cluster=\"$CLUSTER_NAME\"} $COUNT"
         done
       fi
+      
       METRICS_JSON=$(echo "$METRICS_LINES" | jq -R . | jq -s .)
       CACHE=$(echo "$CACHE" | jq --arg img "$IMAGE" --arg dig "$DIGEST" --argjson met "$METRICS_JSON" '.[$img] = {"digest": $dig, "metrics": $met}')
     fi
@@ -211,6 +281,7 @@ generate_metrics() {
 # Main always-on openmetrics server
 main_openmetrics() {
   detect_containerd_socket || exit 3
+  ensure_cg_index
 
   # Metrics collector loop in foreground in a subshell, with error handling
   (
@@ -236,6 +307,7 @@ main_openmetrics() {
 # Main CSV mode
 main_csv() {
   detect_containerd_socket || exit 3
+  ensure_cg_index
   collect_image_metrics
   generate_csv
 }
@@ -243,6 +315,7 @@ main_csv() {
 # Main default mode
 main_default() {
   detect_containerd_socket || exit 3
+  ensure_cg_index
   while true; do
     collect_image_metrics
     generate_metrics
