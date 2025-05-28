@@ -281,11 +281,11 @@ generate_metrics() {
 # Main always-on openmetrics server
 main_openmetrics() {
   detect_containerd_socket || exit 3
-  ensure_cg_index
 
   # Metrics collector loop in foreground in a subshell, with error handling
   (
     while true; do
+      ensure_cg_index
       collect_image_metrics
       generate_metrics
       sleep "$SLEEP_TIME"
@@ -315,8 +315,8 @@ main_csv() {
 # Main default mode
 main_default() {
   detect_containerd_socket || exit 3
-  ensure_cg_index
   while true; do
+    ensure_cg_index
     collect_image_metrics
     generate_metrics
     TMP_METRIC_FILE="${METRIC_FILE}.tmp"
