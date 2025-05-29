@@ -43,6 +43,15 @@ fi
 
 info "Using cluster label: $CLUSTER_NAME"
 
+# Authorize chainctl
+if [ -n "${CHAINCTL_IDENTITY_TOKEN:-}" ]; then
+  chainctl auth login --identity-token="$CHAINCTL_IDENTITY_TOKEN" --refresh || {
+    info "chainctl login failed!"; exit 1;
+  }
+else
+  info "CHAINCTL_IDENTITY_TOKEN env var not set!"; exit 1
+fi
+
 # Graceful shutdown support
 CLEANUP_PID=""
 cleanup() {
