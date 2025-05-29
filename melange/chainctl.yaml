@@ -1,0 +1,31 @@
+package:
+  name: chainctl
+  version: 1.0.0
+  epoch: 0
+  description: "Chainguard chainctl CLI"
+  target-architecture:
+    - x86_64
+    - aarch64
+  copyright:
+    - license: Apache-2.0
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/bootstrap/stage3
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/bootstrap/stage3/wolfi-signing.rsa.pub
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      - busybox
+      - curl    
+
+pipeline:
+  - name: Download chainctl
+    runs: |
+      curl -o chainctl "https://dl.enforce.dev/chainctl/latest/chainctl_$(uname -s | tr '[:upper:]' '[:lower:]')_$(uname -m | sed 's/aarch64/arm64/')"
+
+  - name: Install chainctl
+    runs: |
+      install -Dm755 ./chainctl "${{targets.destdir}}"/usr/local/bin/chainctl
