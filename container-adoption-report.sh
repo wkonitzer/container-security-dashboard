@@ -166,15 +166,17 @@ collect_image_metrics() {
   METRICS_LINES=""
 
   for IMAGE in $IMAGES; do
+    info "Image: $IMAGE"
     PRESENT_IMAGES="$PRESENT_IMAGES $IMAGE"
     DIGEST=$(crane digest "$IMAGE" 2>/dev/null || true)
     [ -z "$DIGEST" ] && info "Could not fetch digest for $IMAGE, skipping." && continue
     CACHED_DIGEST=$(echo "$CACHE" | jq -r --arg img "$IMAGE" '.[$img].digest // empty')
     if [ "$DIGEST" = "$CACHED_DIGEST" ]; then
       METRICS=$(echo "$CACHE" | jq -r --arg img "$IMAGE" '.[$img].metrics[]?' )
-      [ -n "$METRICS" ] && METRICS_LINES="$METRICS_LINES
-$METRICS"
+      [ -n "$METRICS" ] && METRICS_LINES="$METRICS_LINES $METRICS"
+      info "Digest unchanged, using cached metrics."
     else
+      info "Digest changed or new image, collecting metadata..."
       VENDOR=$(crane manifest "$IMAGE" 2>/dev/null | jq -r '.annotations["org.opencontainers.image.vendor"] // "unknown"')
 
       if [[ "$VENDOR" != "chainguard" ]]; then
@@ -191,6 +193,8 @@ $METRICS"
 
       NAME=$(echo "$IMAGE" | cut -d':' -f1)
       VERSION=$(echo "$IMAGE" | cut -d':' -f2)
+
+      info "Extracting size.."
       SIZE=$(crane manifest "$IMAGE" --platform="$PLATFORM" 2>/dev/null | jq '[.layers[].size] | add // 0' 2>/dev/null || echo 0)
       
       METRICS_LINES="$METRICS_LINES
@@ -198,6 +202,7 @@ node_container_image_info{image=\"$NAME\",version=\"$VERSION\",vendor=\"$VENDOR\
       METRICS_LINES="$METRICS_LINES
 node_container_image_size_bytes{image=\"$NAME\",version=\"$VERSION\",vendor=\"$VENDOR\",cluster=\"$CLUSTER_NAME\"} $SIZE"
       
+      info "Running Trivy..."
       TRIVY_OUTPUT=$(trivy image --severity CRITICAL,HIGH,MEDIUM,LOW --format json "$IMAGE" 2>/dev/null || echo "")
       if [ -n "$TRIVY_OUTPUT" ]; then
         for sev in CRITICAL HIGH MEDIUM LOW; do
@@ -217,10 +222,15 @@ container_cve_count{image=\"$NAME\",version=\"$VERSION\",severity=\"$sev\",clust
     esac
   done
 
+  info "Removing images that no longer exist..."
   for OLD_IMAGE in $(echo "$CACHE" | jq -r 'keys[]'); do
-    echo " $PRESENT_IMAGES " | grep -q " $OLD_IMAGE " || CACHE=$(echo "$CACHE" | jq --arg img "$OLD_IMAGE" 'del(.[$img])')
+    if ! echo " $PRESENT_IMAGES " | grep -q " $OLD_IMAGE "; then
+      info "Removing cached entry for missing image: $OLD_IMAGE"
+      CACHE=$(echo "$CACHE" | jq --arg img "$OLD_IMAGE" 'del(.[$img])')
+    fi
   done
 
+  info "Updating cache..."
   echo "$CACHE" > "$CACHE_FILE"
 
   # Export results for metrics and CSV
@@ -325,13 +335,16 @@ main_csv() {
 main_default() {
   detect_containerd_socket || exit 3
   while true; do
+    info "$(date)"
     ensure_cg_index
     collect_image_metrics
     generate_metrics
     TMP_METRIC_FILE="${METRIC_FILE}.tmp"
     cp "$METRICS_CACHE" "$TMP_METRIC_FILE"
     mv "$TMP_METRIC_FILE" "$METRIC_FILE"
+    info "Sleeping..."
     sleep "$SLEEP_TIME"
+    info "---"
   done
 }
 
