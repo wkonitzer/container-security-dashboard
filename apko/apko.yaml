@@ -22,7 +22,7 @@ contents:
     - crane
     - cri-tools
     - busybox
-    - chainctl
+    - chainctl@local
     - container-adoption-report@local
 
 work-dir: /
