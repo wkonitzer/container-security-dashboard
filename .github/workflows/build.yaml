@@ -23,9 +23,19 @@ jobs:
     steps:
       - uses: actions/checkout@v3
 
-      - name: Setup CLI Tools (apko)
+      - uses: actions/checkout@v3             
+        with:
+          repository: chainguard-dev/melange
+          path: melange-src
+
+      - uses: actions/checkout@v3             
+        with:
+          repository: wolfi-dev/os
+          path: wolfi-os          
+
+      - name: Setup CLI Tools (apko, jq, parallel)
         run: |
-          sudo apt-get update && sudo apt-get install -y jq
+          sudo apt-get update && sudo apt-get install -y jq parallel
 
           install_latest_release() {
             TOOL_NAME=$1
@@ -56,9 +66,38 @@ jobs:
 
           install_latest_release apko chainguard-dev/apko
 
+      - name: Checkout melange stable version
+        run: |
+          cd melange-src
+          git fetch --tags
+          git checkout v0.23.10          
+
+      - name: Merge pipelines & build melange
+        run: |
+          cp -r wolfi-os/pipelines/py melange-src/pkg/build/pipelines/
+          cd melange-src
+          go build -o melange .
+          sudo mv melange /usr/local/bin/melange
+          
       - name: Verify CLI tools
         run: |
+          command -v melange && melange version
           command -v apko && apko version
+
+      - name: Generate signing key
+        run: |
+          melange keygen melange/melange.rsa          
+
+      - name: Build packages
+        run: |
+          mkdir -p packages/${{ matrix.arch.arch }}
+          find melange -name '*.yaml' | parallel -j 1 '
+            melange build {} --source-dir . \
+              --arch ${{ matrix.arch.arch }} \
+              --out-dir packages \
+              --signing-key melange/melange.rsa \
+              --runner docker || true
+          '
 
       - name: Build container image
         run: |
