@@ -10,8 +10,10 @@ archs:
   - aarch64
 contents:
   repositories:
+    - '@local ./packages'
     - https://packages.wolfi.dev/os
   keyring:
+    - melange/melange.rsa.pub
     - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub    
   packages:
     - bash
@@ -20,6 +22,8 @@ contents:
     - crane
     - cri-tools
     - busybox
+    - chainctl
+    - container-adoption-report@local
 
 work-dir: /
 
