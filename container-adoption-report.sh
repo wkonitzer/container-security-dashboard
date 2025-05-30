@@ -23,6 +23,7 @@ MAX_AGE_HOURS=24
 OUTPUT_FILE="${1:-/data/adoption.csv}"  # Allow path as argument, default to /data/adoption.csv
 CLUSTER_NAME="${CLUSTER_NAME:-default_cluster}" # Cluster label for metrics (default: "default_cluster")
 [ -z "$CLUSTER_NAME" ] && CLUSTER_NAME="default_cluster"
+HOST_NODE_NAME="${HOST_NODE_NAME:-unknown}"
 
 # Mode detection
 MODE_COUNT=0
@@ -67,13 +68,17 @@ trap cleanup INT TERM
 ensure_cg_index() {
   # Check if the index file exists and is fresh
   if [ -f "$INDEX_FILE" ]; then
-    AGE_HOURS=$(( ($(date +%s) - $(stat -c %Y "$INDEX_FILE")) / 3600 ))
-    if [ "$AGE_HOURS" -lt "$MAX_AGE_HOURS" ]; then
-      info "Using cached Chainguard base layer index (last updated $AGE_HOURS hours ago): $INDEX_FILE"
-      return 0
-    else
-      info "Index file is stale ($AGE_HOURS hours old), rebuilding..."
-    fi
+    if [ ! -s "$INDEX_FILE" ]; then
+      info "Index file exists but is empty, rebuilding..."
+    else    
+      AGE_HOURS=$(( ($(date +%s) - $(stat -c %Y "$INDEX_FILE")) / 3600 ))
+      if [ "$AGE_HOURS" -lt "$MAX_AGE_HOURS" ]; then
+        info "Using cached Chainguard base layer index (last updated $AGE_HOURS hours ago): $INDEX_FILE"
+        return 0
+      else
+        info "Index file is stale ($AGE_HOURS hours old), rebuilding..."
+      fi
+    fi  
   else
     info "Index file missing, building for the first time..."
   fi
@@ -121,7 +126,8 @@ detect_containerd_socket() {
   for sock in \
     /run/containerd/containerd.sock \
     /run/k3s/containerd/containerd.sock \
-    /run/k0s/containerd.sock; do
+    /run/k0s/containerd.sock \
+    /var/run/docker.sock; do
     if [ -S "$sock" ]; then
       crictl --runtime-endpoint "unix://$sock" images >/dev/null 2>&1
       if [ $? -eq 0 ]; then
@@ -170,17 +176,33 @@ collect_image_metrics() {
     PRESENT_IMAGES="$PRESENT_IMAGES $IMAGE"
     DIGEST=$(crane digest "$IMAGE" 2>/dev/null || true)
     [ -z "$DIGEST" ] && info "Could not fetch digest for $IMAGE, skipping." && continue
+
     CACHED_DIGEST=$(echo "$CACHE" | jq -r --arg img "$IMAGE" '.[$img].digest // empty')
     if [ "$DIGEST" = "$CACHED_DIGEST" ]; then
       METRICS=$(echo "$CACHE" | jq -r --arg img "$IMAGE" '.[$img].metrics[]?' )
       [ -n "$METRICS" ] && METRICS_LINES="$METRICS_LINES $METRICS"
       info "Digest unchanged, using cached metrics."
+
+      # Extract VENDOR from cached metrics for classification
+      VENDOR=$(echo "$CACHE" | jq -r --arg img "$IMAGE" '
+        .[$img].metrics[]? 
+        | select(startswith("node_container_image_info")) 
+        | split("vendor=\"")[1]? 
+        | split("\"")[0] // empty' | head -n1)
+      VENDOR=${VENDOR,,}
     else
       info "Digest changed or new image, collecting metadata..."
-      VENDOR=$(crane manifest "$IMAGE" 2>/dev/null | jq -r '.annotations["org.opencontainers.image.vendor"] // "unknown"')
+      VENDOR=$(crane manifest "$IMAGE" 2>/dev/null | jq -r '.annotations["org.opencontainers.image.vendor"] // empty')
+
+      if [ -z "$VENDOR" ]; then
+        info "No annotation match, checking label..."
+        VENDOR=$(crane config "$IMAGE" | jq -r '.config.Labels["org.opencontainers.image.vendor"] // empty')
+      fi     
+
+      VENDOR=${VENDOR,,}       
 
       if [[ "$VENDOR" != "chainguard" ]]; then
-        # Check all layers for a CG base match
+        info "No label match, checking layers..."
         LAYERS=$(crane config "$IMAGE" | jq -r '.rootfs.diff_ids[]')
         for LAYER in $LAYERS; do
           if grep -q "^$LAYER " "$INDEX_FILE"; then
@@ -188,38 +210,46 @@ collect_image_metrics() {
             break
           fi
         done
-        [[ -z "$VENDOR" ]] && VENDOR="unknown"
       fi
+
+      [ -z "$VENDOR" ] && VENDOR="unknown"   
 
       NAME=$(echo "$IMAGE" | cut -d':' -f1)
       VERSION=$(echo "$IMAGE" | cut -d':' -f2)
 
       info "Extracting size.."
       SIZE=$(crane manifest "$IMAGE" --platform="$PLATFORM" 2>/dev/null | jq '[.layers[].size] | add // 0' 2>/dev/null || echo 0)
-      
-      METRICS_LINES="$METRICS_LINES
+
+      IMAGE_METRICS=""
+      IMAGE_METRICS="$IMAGE_METRICS
 node_container_image_info{image=\"$NAME\",version=\"$VERSION\",vendor=\"$VENDOR\",cluster=\"$CLUSTER_NAME\"} 1"
-      METRICS_LINES="$METRICS_LINES
+      IMAGE_METRICS="$IMAGE_METRICS
 node_container_image_size_bytes{image=\"$NAME\",version=\"$VERSION\",vendor=\"$VENDOR\",cluster=\"$CLUSTER_NAME\"} $SIZE"
-      
+
       info "Running Trivy..."
       TRIVY_OUTPUT=$(trivy image --severity CRITICAL,HIGH,MEDIUM,LOW --format json "$IMAGE" 2>/dev/null || echo "")
       if [ -n "$TRIVY_OUTPUT" ]; then
         for sev in CRITICAL HIGH MEDIUM LOW; do
           COUNT=$(echo "$TRIVY_OUTPUT" | jq "[.Results[]? | .Vulnerabilities? // [] | .[]? | select(.Severity == \"$sev\")] | length" 2>/dev/null || echo 0)
-          METRICS_LINES="$METRICS_LINES
+          IMAGE_METRICS="$IMAGE_METRICS
 container_cve_count{image=\"$NAME\",version=\"$VERSION\",severity=\"$sev\",cluster=\"$CLUSTER_NAME\"} $COUNT"
         done
       fi
-      
-      METRICS_JSON=$(echo "$METRICS_LINES" | jq -R . | jq -s .)
+
+      # Clean empty lines
+      IMAGE_METRICS=$(echo "$IMAGE_METRICS" | sed '/^$/d')
+      METRICS_LINES="$METRICS_LINES $IMAGE_METRICS"
+
+      # Save per-image metrics in cache
+      METRICS_JSON=$(echo "$IMAGE_METRICS" | jq -R . | jq -s .)
       CACHE=$(echo "$CACHE" | jq --arg img "$IMAGE" --arg dig "$DIGEST" --argjson met "$METRICS_JSON" '.[$img] = {"digest": $dig, "metrics": $met}')
     fi
 
-    case "$IMAGE" in
-      cgr.dev/chainguard/*) CHAINGUARD_IMAGES="$CHAINGUARD_IMAGES $IMAGE" ;;
-      *) NON_CHAINGUARD_IMAGES="$NON_CHAINGUARD_IMAGES $IMAGE" ;;
-    esac
+    if [[ "$VENDOR" == "chainguard" ]]; then
+      CHAINGUARD_IMAGES="$CHAINGUARD_IMAGES $IMAGE"
+    else
+      NON_CHAINGUARD_IMAGES="$NON_CHAINGUARD_IMAGES $IMAGE"
+    fi
   done
 
   info "Removing images that no longer exist..."
@@ -277,7 +307,7 @@ generate_csv() {
   fi
 
   # Append row
-  echo "$CLUSTER_NAME,$(hostname),$(date -Iseconds),$TOTAL,$CG_TOTAL,$NON_CG_TOTAL,$PERCENT" >> "$OUTPUT_FILE"
+  echo "$CLUSTER_NAME,$HOST_NODE_NAME,$(date -Iseconds),$TOTAL,$CG_TOTAL,$NON_CG_TOTAL,$PERCENT" >> "$OUTPUT_FILE"
 
   # Log message on success
   info "Wrote adoption metrics row to $OUTPUT_FILE"

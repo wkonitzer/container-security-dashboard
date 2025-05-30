@@ -37,7 +37,7 @@ accounts:
       gid: 10000   
 
 entrypoint:
-  command: /bin/bash
+  command: /bin/sh
 
 cmd: |
   sleep infinity
