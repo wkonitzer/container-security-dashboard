@@ -24,7 +24,7 @@ OUTPUT_FILE="${1:-/data/adoption.csv}"  # Allow path as argument, default to /da
 CLUSTER_NAME="${CLUSTER_NAME:-default_cluster}" # Cluster label for metrics (default: "default_cluster")
 [ -z "$CLUSTER_NAME" ] && CLUSTER_NAME="default_cluster"
 HOST_NODE_NAME="${HOST_NODE_NAME:-unknown}"
-CHAINCTL_IDENTITY=""
+CHAINCTL_IDENTITY=${CHAINCTL_IDENTITY:-unknown}
 CHAINCTL_IDENTITY_PATH=${CHAINCTL_IDENTITY_PATH:-/var/run/chainguard/oidc/oidc-token}
 
 # Mode detection

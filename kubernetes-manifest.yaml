@@ -200,13 +200,40 @@ spec:
         app: container-security-metrics
     spec:
       serviceAccountName: chainctl
-      priorityClassName: container-security-critical              
+      priorityClassName: container-security-critical
+      initContainers:
+        - name: init-chainctl
+          image: debian:bookworm-slim
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              apt-get update && apt-get install -y --no-install-recommends dnsutils && \
+              echo "Waiting for DNS to resolve kubernetes.default.svc...";
+              until nslookup kubernetes.default.svc; do sleep 1; done;
+          volumeMounts:
+            - name: script
+              mountPath: /app/collector-script.sh
+              subPath: collector-script.sh
+            - name: textfile-collector
+              mountPath: /node-exporter
+            - name: containerd-sock1
+              mountPath: /run/containerd/containerd.sock
+            - name: containerd-sock2
+              mountPath: /run/k3s/containerd/containerd.sock
+            - name: containerd-sock3
+              mountPath: /run/k0s/containerd.sock
+            - name: oidc-token
+              mountPath: /var/run/chainguard/oidc/                  
       containers:
         - name: collector
           image: ghcr.io/wkonitzer/container-security-dashboard:latest
-          command:
-            - /bin/bash
-            - /usr/local/bin/container-adoption-report
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              echo $CHAINCTL_IDENTITY
+              cat /var/run/chainguard/oidc/oidc-token
+              chainctl auth login --identity "$CHAINCTL_IDENTITY" --identity-token /var/run/chainguard/oidc/oidc-token
+              sleep 5; /usr/local/bin/container-adoption-report
           env:
             - name: SLEEP_TIME
               value: "30"
