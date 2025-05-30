@@ -46,22 +46,42 @@ fi
 
 info "Using cluster label: $CLUSTER_NAME"
 
-# Authorize chainctl using projected token
-if [ -s "$CHAINCTL_IDENTITY_PATH" ]; then
-  chainctl auth login \
-    --identity "$CHAINCTL_IDENTITY" \
-    --identity-token "$CHAINCTL_IDENTITY_PATH" || {
-      info "chainctl login failed!"
-      exit 1
-    }
+# Wait for token to be available (robust check)
+for i in {1..10}; do
+  if [ -s "$CHAINCTL_IDENTITY_PATH" ]; then
+    break
+  fi
+  echo "Waiting for OIDC token to be mounted at $CHAINCTL_IDENTITY_PATH..."
+  sleep 1
+done
 
-  # Set up Docker credentials for crane and friends
+# Final check in case token never appeared
+if [ ! -s "$CHAINCTL_IDENTITY_PATH" ]; then
+  echo "OIDC token file not found or empty at $CHAINCTL_IDENTITY_PATH!"
+  exit 1
+fi
+
+# Retry chainctl login
+login_success=0
+for i in {1..5}; do
+  if chainctl auth login --identity "$CHAINCTL_IDENTITY" --identity-token "$CHAINCTL_IDENTITY_PATH"; then
+    login_success=1
+    break
+  fi
+  echo "Retrying chainctl login ($i)..."
+  sleep 2
+done
+
+if [ "$login_success" -ne 1 ]; then
+  echo "chainctl login failed after retries!"
+  exit 1
+fi
+
+# Only configure Docker auth if login was successful
+if [ "$login_success" -eq 1 ]; then
   chainctl auth configure-docker \
     --identity "$CHAINCTL_IDENTITY" \
     --identity-token "$CHAINCTL_IDENTITY_PATH"
-else
-  info "OIDC token file not found or empty at $CHAINCTL_IDENTITY_PATH!"
-  exit 1
 fi
 
 # Graceful shutdown support
