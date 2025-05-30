@@ -50,17 +50,15 @@ info "Using cluster label: $CLUSTER_NAME"
 if [ -s "$CHAINCTL_IDENTITY_PATH" ]; then
   chainctl auth login \
     --identity "$CHAINCTL_IDENTITY" \
-    --identity-token "$CHAINCTL_IDENTITY_PATH" \
-    --refresh || {
+    --identity-token "$CHAINCTL_IDENTITY_PATH" || {
       info "chainctl login failed!"
       exit 1
     }
 
   # Set up Docker credentials for crane and friends
-  chainctl auth configure-docker || {
-    info "chainctl configure-docker failed!"
-    exit 1
-  }
+  chainctl auth configure-docker \
+    --identity "$CHAINCTL_IDENTITY" \
+    --identity-token "$CHAINCTL_IDENTITY_PATH"
 else
   info "OIDC token file not found or empty at $CHAINCTL_IDENTITY_PATH!"
   exit 1
@@ -106,6 +104,7 @@ ensure_cg_index() {
   MAX_PROCS=8
   count=0
 
+  info "Creating cache.."
   while IFS= read -r IMAGE_LINE; do
     (
       IMAGE="${IMAGE_LINE%@sha256*}@${IMAGE_LINE##*@}"

@@ -199,6 +199,7 @@ spec:
       labels:
         app: container-security-metrics
     spec:
+      serviceAccountName: chainctl
       priorityClassName: container-security-critical              
       containers:
         - name: collector
@@ -211,6 +212,8 @@ spec:
               value: "30"
             #- name: HTTP_PORT
             #  value: "9100"
+            #- name: DEBUG
+            #  value: "TRUE"
             - name: MAX_AGE_HOURS
               value: "24"
             - name: CHAINCTL_IDENTITY
