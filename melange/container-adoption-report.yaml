@@ -23,4 +23,4 @@ environment:
 pipeline:
   - name: Install script
     runs: |
-      install -Dm755 "${{package.srcdir}}"/container-adoption-report.sh "${{targets.destdir}}"/usr/local/bin/container-adoption-report.sh
+      install -Dm755 "${{package.srcdir}}"/container-adoption-report "${{targets.destdir}}"/usr/local/bin/container-adoption-report

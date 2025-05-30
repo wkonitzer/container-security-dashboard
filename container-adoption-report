@@ -19,11 +19,13 @@ TMP_METRIC_FILE="/tmp/container-security.prom.tmp"
 METRICS_CACHE="/tmp/latest_metrics.prom"
 CSV_CACHE="/tmp/latest_metrics.csv"
 INDEX_FILE="/tmp/cg-base-index.txt"
-MAX_AGE_HOURS=24
+MAX_AGE_HOURS="${MAX_AGE_HOURS:-24}"
 OUTPUT_FILE="${1:-/data/adoption.csv}"  # Allow path as argument, default to /data/adoption.csv
 CLUSTER_NAME="${CLUSTER_NAME:-default_cluster}" # Cluster label for metrics (default: "default_cluster")
 [ -z "$CLUSTER_NAME" ] && CLUSTER_NAME="default_cluster"
 HOST_NODE_NAME="${HOST_NODE_NAME:-unknown}"
+CHAINCTL_IDENTITY=""
+CHAINCTL_IDENTITY_PATH=${CHAINCTL_IDENTITY_PATH:-/var/run/chainguard/oidc/oidc-token}
 
 # Mode detection
 MODE_COUNT=0
@@ -44,13 +46,24 @@ fi
 
 info "Using cluster label: $CLUSTER_NAME"
 
-# Authorize chainctl
-if [ -n "${CHAINCTL_IDENTITY_TOKEN:-}" ]; then
-  chainctl auth login --identity-token="$CHAINCTL_IDENTITY_TOKEN" --refresh || {
-    info "chainctl login failed!"; exit 1;
+# Authorize chainctl using projected token
+if [ -s "$CHAINCTL_IDENTITY_PATH" ]; then
+  chainctl auth login \
+    --identity "$CHAINCTL_IDENTITY" \
+    --identity-token "$CHAINCTL_IDENTITY_PATH" \
+    --refresh || {
+      info "chainctl login failed!"
+      exit 1
+    }
+
+  # Set up Docker credentials for crane and friends
+  chainctl auth configure-docker || {
+    info "chainctl configure-docker failed!"
+    exit 1
   }
 else
-  info "CHAINCTL_IDENTITY_TOKEN env var not set!"; exit 1
+  info "OIDC token file not found or empty at $CHAINCTL_IDENTITY_PATH!"
+  exit 1
 fi
 
 # Graceful shutdown support

@@ -3,6 +3,29 @@ apiVersion: v1
 kind: Namespace
 metadata:
   name: monitoring
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: chainctl
+  namespace: monitoring
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: cluster-name
+  namespace: monitoring
+data:
+  CLUSTER_NAME: my-cluster-name
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: chainctl-identity
+  namespace: monitoring
+type: Opaque
+stringData:
+  CHAINCTL_IDENTITY: a5216ba546c6364dfd5606c4381e4a378c87b7ff/50e3588c392c3308
 ---  
 apiVersion: v1
 kind: ConfigMap
@@ -182,7 +205,35 @@ spec:
           image: ghcr.io/wkonitzer/container-security-dashboard:latest
           command:
             - /bin/bash
-            - /app/collector-script.sh
+            - /usr/local/bin/container-adoption-report
+          env:
+            - name: SLEEP_TIME
+              value: "30"
+            #- name: HTTP_PORT
+            #  value: "9100"
+            - name: MAX_AGE_HOURS
+              value: "24"
+            - name: CHAINCTL_IDENTITY
+              valueFrom:
+                secretKeyRef:
+                  name: chainctl-identity
+                  key: CHAINCTL_IDENTITY
+            - name: CLUSTER_NAME
+              valueFrom:
+                configMapKeyRef:
+                  name: cluster-name
+                  key: CLUSTER_NAME
+            - name: HOSTNODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName            
+          resources:
+            requests:
+              memory: "64Mi"
+              cpu: "100m"
+            limits:
+              memory: "256Mi"
+              cpu: "500m"            
           volumeMounts:
             - name: script
               mountPath: /app/collector-script.sh
@@ -195,6 +246,8 @@ spec:
               mountPath: /run/k3s/containerd/containerd.sock
             - name: containerd-sock3
               mountPath: /run/k0s/containerd.sock 
+            - name: oidc-token
+              mountPath: /var/run/chainguard/oidc/
       nodeSelector:
         kubernetes.io/os: linux                                                                    
       volumes:
@@ -217,7 +270,14 @@ spec:
         - name: containerd-sock3
           hostPath:
             path: /run/k0s/containerd.sock
-            type: ""                        
+            type: "" 
+        - name: oidc-token
+          projected:
+            sources:
+              - serviceAccountToken:
+                  path: oidc-token
+                  expirationSeconds: 3600
+                  audience: issuer.enforce.dev                                   
       securityContext:
         runAsUser: 0
         runAsGroup: 0
