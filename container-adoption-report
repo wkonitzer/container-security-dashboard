@@ -374,15 +374,20 @@ main_openmetrics() {
   ) &
   CLEANUP_PID=$!
 
-  info "Starting OpenMetrics HTTP server on port $HTTP_PORT (BusyBox mode, always-on)"
-  # Serve HTTP requests forever; if metrics collector dies, exit
-  while true; do
-    if ! kill -0 "$CLEANUP_PID" 2>/dev/null; then
-      info "Metrics collection loop died! Exiting."
-      exit 1
-    fi
-    { echo -ne "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\n\r\n"; cat "$METRICS_CACHE"; } | nc -l -p "$HTTP_PORT" -s 0.0.0.0
-  done
+  # start a watcher in the background that will kill this script if the collector dies
+  (
+    wait "$CLEANUP_PID"
+    info "Metrics collection loop died! Exiting."
+    kill $$            # kill the httpd process (which is the main shell)
+  ) &
+
+  info "Starting OpenMetrics HTTP server on port $HTTP_PORT (BusyBox httpd mode)"
+  httpd -f -p "$HTTP_PORT" \
+       -h "$(dirname "$METRICS_CACHE")" \
+       -c 'while read req; do
+             printf "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\n\r\n"
+             cat "'"$METRICS_CACHE"'"
+           done'
 }
 
 # Main CSV mode
