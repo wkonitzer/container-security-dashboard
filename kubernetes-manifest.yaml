@@ -198,6 +198,9 @@ spec:
     metadata:
       labels:
         app: container-security-metrics
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port:   "9100"        
     spec:
       serviceAccountName: chainctl
       priorityClassName: container-security-critical                 
@@ -218,7 +221,7 @@ spec:
             #- name: DEBUG
             #  value: "TRUE"
             - name: MAX_AGE_HOURS
-              value: "24"
+              value: "1"
             - name: CHAINCTL_IDENTITY
               valueFrom:
                 secretKeyRef:

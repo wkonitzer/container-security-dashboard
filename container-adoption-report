@@ -23,7 +23,7 @@ MAX_AGE_HOURS="${MAX_AGE_HOURS:-24}"
 OUTPUT_FILE="${1:-/data/adoption.csv}"  # Allow path as argument, default to /data/adoption.csv
 CLUSTER_NAME="${CLUSTER_NAME:-default_cluster}" # Cluster label for metrics (default: "default_cluster")
 [ -z "$CLUSTER_NAME" ] && CLUSTER_NAME="default_cluster"
-HOST_NODE_NAME="${HOST_NODE_NAME:-unknown}"
+HOSTNODE_NAME="${HOSTNODE_NAME:-unknown}"
 CHAINCTL_IDENTITY=${CHAINCTL_IDENTITY:-unknown}
 CHAINCTL_IDENTITY_PATH=${CHAINCTL_IDENTITY_PATH:-/var/run/chainguard/oidc/oidc-token}
 
@@ -261,9 +261,9 @@ collect_image_metrics() {
       info "Extracting size.."
       SIZE=$(crane manifest "$IMAGE" --platform="$PLATFORM" 2>/dev/null | jq '[.layers[].size] | add // 0' 2>/dev/null || echo 0)
 
-      IMAGE_METRICS="node_container_image_info{image=\"$NAME\",version=\"$VERSION\",vendor=\"$VENDOR\",cluster=\"$CLUSTER_NAME\"} 1"
+      IMAGE_METRICS="node_container_image_info{image=\"$NAME\",version=\"$VERSION\",vendor=\"$VENDOR\",node=\"$HOSTNODE_NAME\",cluster=\"$CLUSTER_NAME\"} 1"
       IMAGE_METRICS="$IMAGE_METRICS
-node_container_image_size_bytes{image=\"$NAME\",version=\"$VERSION\",vendor=\"$VENDOR\",cluster=\"$CLUSTER_NAME\"} $SIZE"
+node_container_image_size_bytes{image=\"$NAME\",version=\"$VERSION\",vendor=\"$VENDOR\",node=\"$HOSTNODE_NAME\",cluster=\"$CLUSTER_NAME\"} $SIZE"
 
       info "Running Trivy..."
       TRIVY_OUTPUT=$(trivy image --severity CRITICAL,HIGH,MEDIUM,LOW --format json "$IMAGE" 2>/dev/null || echo "")
@@ -271,7 +271,7 @@ node_container_image_size_bytes{image=\"$NAME\",version=\"$VERSION\",vendor=\"$V
         for sev in CRITICAL HIGH MEDIUM LOW; do
           COUNT=$(echo "$TRIVY_OUTPUT" | jq "[.Results[]? | .Vulnerabilities? // [] | .[]? | select(.Severity == \"$sev\")] | length" 2>/dev/null || echo 0)
           IMAGE_METRICS="$IMAGE_METRICS
-container_cve_count{image=\"$NAME\",version=\"$VERSION\",severity=\"$sev\",cluster=\"$CLUSTER_NAME\"} $COUNT"
+container_cve_count{image=\"$NAME\",version=\"$VERSION\",severity=\"$sev\",node=\"$HOSTNODE_NAME\",cluster=\"$CLUSTER_NAME\"} $COUNT"
         done
       fi
 
@@ -353,7 +353,7 @@ generate_csv() {
   fi
 
   # Append row
-  echo "$CLUSTER_NAME,$HOST_NODE_NAME,$(date -Iseconds),$TOTAL,$CG_TOTAL,$NON_CG_TOTAL,$PERCENT" >> "$OUTPUT_FILE"
+  echo "$CLUSTER_NAME,$HOSTNODE_NAME,$(date -Iseconds),$TOTAL,$CG_TOTAL,$NON_CG_TOTAL,$PERCENT" >> "$OUTPUT_FILE"
 
   # Log message on success
   info "Wrote adoption metrics row to $OUTPUT_FILE"
