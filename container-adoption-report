@@ -269,9 +269,10 @@ container_cve_count{image=\"$NAME\",version=\"$VERSION\",severity=\"$sev\",clust
       fi
 
       # Trim leading whitespace and drop empty lines
-      IMAGE_METRICS=$(echo "$IMAGE_METRICS" | sed -e 's/^[[:space:]]*//' -e '/^$/d')
-      METRICS_LINES="$METRICS_LINES
-      $IMAGE_METRICS"
+      IMAGE_METRICS=$(printf '%s\n' "$IMAGE_METRICS" \
+        | sed -e 's/^[[:space:]]*//' -e '/^$/d')
+
+      METRICS_LINES+=$'\n'"$IMAGE_METRICS"
 
       # Save per-image metrics in cache
       METRICS_JSON=$(echo "$IMAGE_METRICS" | jq -R . | jq -s .)
