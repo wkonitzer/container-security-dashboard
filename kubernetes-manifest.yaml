@@ -199,8 +199,8 @@ spec:
       labels:
         app: container-security-metrics
       annotations:
-        prometheus.io/scrape: "true"
-        prometheus.io/port:   "9100"        
+  #      prometheus.io/scrape: "true"
+  #      prometheus.io/port:   "9100"        
     spec:
       serviceAccountName: chainctl
       priorityClassName: container-security-critical                 
@@ -214,10 +214,10 @@ spec:
           env:
             - name: SLEEP_TIME
               value: "30"
-            - name: HTTP_PORT
-              value: "9100"
-            - name: OPENMETRICS
-              value: "TRUE"  
+  #          - name: HTTP_PORT
+  #            value: "9100"
+  #          - name: OPENMETRICS
+  #            value: "TRUE"  
             #- name: DEBUG
             #  value: "TRUE"
             - name: MAX_AGE_HOURS

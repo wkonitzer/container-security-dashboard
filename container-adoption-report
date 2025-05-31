@@ -61,28 +61,30 @@ if [ ! -s "$CHAINCTL_IDENTITY_PATH" ]; then
   exit 1
 fi
 
-# Retry chainctl login
-login_success=0
-for i in {1..5}; do
-  if chainctl auth login --identity "$CHAINCTL_IDENTITY" --identity-token "$CHAINCTL_IDENTITY_PATH"; then
-    login_success=1
-    break
+# chainctl login
+chainctl_login() {
+  login_success=0
+  for i in {1..5}; do
+    if chainctl auth login --identity "$CHAINCTL_IDENTITY" --identity-token "$CHAINCTL_IDENTITY_PATH"; then
+      login_success=1
+      break
+    fi
+    echo "Retrying chainctl login ($i)..."
+    sleep 2
+  done
+
+  if [ "$login_success" -ne 1 ]; then
+    echo "chainctl login failed after retries!"
+    exit 1
   fi
-  echo "Retrying chainctl login ($i)..."
-  sleep 2
-done
 
-if [ "$login_success" -ne 1 ]; then
-  echo "chainctl login failed after retries!"
-  exit 1
-fi
-
-# Only configure Docker auth if login was successful
-if [ "$login_success" -eq 1 ]; then
-  chainctl auth configure-docker \
-    --identity "$CHAINCTL_IDENTITY" \
-    --identity-token "$CHAINCTL_IDENTITY_PATH"
-fi
+  # Only configure Docker auth if login was successful
+  if [ "$login_success" -eq 1 ]; then
+    chainctl auth configure-docker \
+      --identity "$CHAINCTL_IDENTITY" \
+      --identity-token "$CHAINCTL_IDENTITY_PATH"
+  fi
+}  
 
 # Graceful shutdown support
 CLEANUP_PID=""
@@ -380,6 +382,13 @@ main_openmetrics() {
   # Metrics collector loop in foreground in a subshell, with error handling
   (
     while true; do
+
+      if ! chainctl_login; then
+        info "Login failed; skipping this iteration"
+        sleep "$SLEEP_TIME"
+        continue
+      fi      
+
       ensure_cg_index
       collect_image_metrics
       generate_metrics
@@ -412,6 +421,13 @@ main_default() {
   detect_containerd_socket || exit 3
   while true; do
     info "$(date)"
+
+    if ! chainctl_login; then
+      info "Login failed; skipping this iteration"
+      sleep "$SLEEP_TIME"
+      continue
+    fi
+        
     ensure_cg_index
     collect_image_metrics
     generate_metrics
