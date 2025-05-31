@@ -124,7 +124,7 @@ ensure_cg_index() {
   MAX_PROCS=8
   count=0
 
-  info "Creating cache.."
+  info "Creating image digest cache.."
   while IFS= read -r IMAGE_LINE; do
     (
       IMAGE="${IMAGE_LINE%@sha256*}@${IMAGE_LINE##*@}"
@@ -211,8 +211,17 @@ collect_image_metrics() {
 
     CACHED_DIGEST=$(echo "$CACHE" | jq -r --arg img "$IMAGE" '.[$img].digest // empty')
     if [ "$DIGEST" = "$CACHED_DIGEST" ]; then
+      # Grab the stored lines, clean them, then append
       METRICS=$(echo "$CACHE" | jq -r --arg img "$IMAGE" '.[$img].metrics[]?' )
-      [ -n "$METRICS" ] && METRICS_LINES="$METRICS_LINES $METRICS"
+      if [ -n "$METRICS" ]; then
+        CLEANED=$(printf '%s\n' "$METRICS" \
+          | sed -e 's/^[[:space:]]*//' -e '/^$/d')
+        if [ -z "$METRICS_LINES" ]; then
+          METRICS_LINES="$CLEANED"
+        else
+          METRICS_LINES=$(printf '%s\n%s' "$METRICS_LINES" "$CLEANED")
+        fi
+      fi
       info "Digest unchanged, using cached metrics."
 
       # Extract VENDOR from cached metrics for classification
@@ -252,9 +261,7 @@ collect_image_metrics() {
       info "Extracting size.."
       SIZE=$(crane manifest "$IMAGE" --platform="$PLATFORM" 2>/dev/null | jq '[.layers[].size] | add // 0' 2>/dev/null || echo 0)
 
-      IMAGE_METRICS=""
-      IMAGE_METRICS="$IMAGE_METRICS
-node_container_image_info{image=\"$NAME\",version=\"$VERSION\",vendor=\"$VENDOR\",cluster=\"$CLUSTER_NAME\"} 1"
+      IMAGE_METRICS="node_container_image_info{image=\"$NAME\",version=\"$VERSION\",vendor=\"$VENDOR\",cluster=\"$CLUSTER_NAME\"} 1"
       IMAGE_METRICS="$IMAGE_METRICS
 node_container_image_size_bytes{image=\"$NAME\",version=\"$VERSION\",vendor=\"$VENDOR\",cluster=\"$CLUSTER_NAME\"} $SIZE"
 
@@ -272,7 +279,12 @@ container_cve_count{image=\"$NAME\",version=\"$VERSION\",severity=\"$sev\",clust
       IMAGE_METRICS=$(printf '%s\n' "$IMAGE_METRICS" \
         | sed -e 's/^[[:space:]]*//' -e '/^$/d')
 
-      METRICS_LINES+=$'\n'"$IMAGE_METRICS"
+      # Append exactly one newline + the cleaned-up block into METRICS_LINES:
+      if [ -z "$METRICS_LINES" ]; then
+        METRICS_LINES="$IMAGE_METRICS"
+      else
+        METRICS_LINES=$(printf '%s\n%s' "$METRICS_LINES" "$IMAGE_METRICS")
+      fi
 
       # Save per-image metrics in cache
       METRICS_JSON=$(echo "$IMAGE_METRICS" | jq -R . | jq -s .)
