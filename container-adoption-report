@@ -382,6 +382,7 @@ main_openmetrics() {
   # Metrics collector loop in foreground in a subshell, with error handling
   (
     while true; do
+      info "$(date)"
 
       if ! chainctl_login; then
         info "Login failed; skipping this iteration"
@@ -392,7 +393,9 @@ main_openmetrics() {
       ensure_cg_index
       collect_image_metrics
       generate_metrics
+      info "Sleeping..."
       sleep "$SLEEP_TIME"
+      info "---"
     done
   ) &
   CLEANUP_PID=$!

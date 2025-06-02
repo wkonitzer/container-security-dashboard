@@ -25,158 +25,8 @@ metadata:
   namespace: monitoring
 type: Opaque
 stringData:
-  CHAINCTL_IDENTITY: a5216ba546c6364dfd5606c4381e4a378c87b7ff/50e3588c392c3308
+  CHAINCTL_IDENTITY: <id>
 ---  
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: container-security-script
-  namespace: monitoring
-data:
-  collector-script.sh: |
-    #!/bin/bash
-    #set -e
-
-    echo "Starting..."
-
-    # Detect containerd socket
-    for sock in \
-      /run/containerd/containerd.sock \
-      /run/k3s/containerd/containerd.sock \
-      /run/k0s/containerd.sock; do
-      if [ -S "$sock" ]; then
-        crictl --runtime-endpoint "unix://$sock" images >/dev/null 2>&1
-        if [ $? -eq 0 ]; then
-          export CONTAINER_RUNTIME_ENDPOINT="unix://$sock"
-          export IMAGE_SERVICE_ENDPOINT="unix://$sock"
-          echo "Detected working CRI endpoint=$CONTAINER_RUNTIME_ENDPOINT"
-          break
-        fi
-      fi
-    done
-
-    if [ -z "$CONTAINER_RUNTIME_ENDPOINT" ]; then
-      echo "No working containerd socket found!"
-      exit 1
-    fi
-
-    ARCH=$(uname -m)
-    case "$ARCH" in
-      x86_64) PLATFORM="linux/amd64" ;;
-      aarch64) PLATFORM="linux/arm64" ;;
-      *) PLATFORM="linux/amd64" ;; # fallback
-    esac
-
-    CACHE_FILE="/tmp/image-metrics.json"
-    METRIC_FILE="/node-exporter/container-security.prom"
-    TMP_METRIC_FILE="/tmp/container-security.prom.tmp"
-
-    touch "$CACHE_FILE"
-    if [ ! -s "$CACHE_FILE" ]; then echo '{}' > "$CACHE_FILE"; fi
-
-    while true; do
-      echo "$(date)"
-
-      # Write static metric headers
-      {
-        echo "# HELP node_container_image_info Container image information"
-        echo "# TYPE node_container_image_info gauge"
-        echo "# HELP node_container_image_size_bytes Size of images in bytes"
-        echo "# TYPE node_container_image_size_bytes gauge"
-        echo "# HELP container_cve_count Number of CVEs per container by severity"
-        echo "# TYPE container_cve_count gauge"
-      } > "$TMP_METRIC_FILE"
-
-      # Get images from crictl
-      CRICTL_JSON=$(crictl images -o json 2>/dev/null)
-      if ! echo "$CRICTL_JSON" | jq -e '.' >/dev/null 2>&1; then
-        echo "ERROR: crictl did not return valid JSON. Aborting image scan."
-        sleep 30
-        continue
-      fi
-
-      NUM_IMAGES=$(echo "$CRICTL_JSON" | jq '.images | length')
-      IMAGES=()
-      if [ "$NUM_IMAGES" -gt 0 ]; then
-        while read -r img; do IMAGES+=("$img"); done < <(echo "$CRICTL_JSON" | jq -r '.images[]?.repoTags[]?' 2>/dev/null)
-      fi
-
-      # Load cache
-      CACHE=$(cat "$CACHE_FILE")
-
-      # Track images found this round
-      PRESENT_IMAGES=()
-
-      for IMAGE in "${IMAGES[@]}"; do
-        echo "Image: $IMAGE"
-        PRESENT_IMAGES+=("$IMAGE")
-
-        DIGEST=$(crane digest "$IMAGE" 2>/dev/null || true)
-        if [ -z "$DIGEST" ]; then
-          echo "Could not fetch digest for $IMAGE, skipping."
-          continue
-        fi
-
-        CACHED_DIGEST=$(jq -r --arg img "$IMAGE" '.[$img].digest // empty' <<< "$CACHE")
-        if [ "$DIGEST" == "$CACHED_DIGEST" ]; then
-          # Use cached metrics
-          METRICS=$(jq -r --arg img "$IMAGE" '.[$img].metrics[]?' <<< "$CACHE")
-          echo "$METRICS" >> "$TMP_METRIC_FILE"
-          echo "Digest unchanged, using cached metrics."
-        else
-          echo "Digest changed or new image, collecting metadata..."
-
-          # Gather metrics
-          echo "Extracting Vendor"
-          VENDOR=$(crane manifest "$IMAGE" 2>/dev/null | jq -r '.annotations["org.opencontainers.image.vendor"] // "unknown"')
-          NAME=$(echo "$IMAGE" | cut -d':' -f1)
-          VERSION=$(echo "$IMAGE" | cut -d':' -f2)
-
-          echo "Extracting size.."
-          SIZE=$(crane manifest "$IMAGE" --platform="$PLATFORM" 2>/dev/null | jq '[.layers[].size] | add // 0' 2>/dev/null || echo 0)
-          METRICS_LINES=()
-          METRICS_LINES+=("node_container_image_info{image=\"$NAME\",version=\"$VERSION\",vendor=\"$VENDOR\"} 1")
-          METRICS_LINES+=("node_container_image_size_bytes{image=\"$NAME\",version=\"$VERSION\",vendor=\"$VENDOR\"} $SIZE")
-
-          echo "Running Trivy"
-          TRIVY_OUTPUT=$(trivy image --severity CRITICAL,HIGH,MEDIUM,LOW --format json "$IMAGE" 2>/dev/null || echo "")
-          if [ -n "$TRIVY_OUTPUT" ]; then
-            for sev in CRITICAL HIGH MEDIUM LOW; do
-              COUNT=$(echo "$TRIVY_OUTPUT" | jq "[.Results[]? | .Vulnerabilities? // [] | .[]? | select(.Severity == \"$sev\")] | length" 2>/dev/null || echo 0)
-              METRICS_LINES+=("container_cve_count{image=\"$NAME\",version=\"$VERSION\",severity=\"$sev\"} $COUNT")
-            done
-          fi
-
-          # Write metrics to temp file
-          printf "%s\n" "${METRICS_LINES[@]}" >> "$TMP_METRIC_FILE"
-
-          # Update cache (write in-memory for now)
-          METRICS_JSON=$(printf "%s\n" "${METRICS_LINES[@]}" | jq -R . | jq -s .)
-          CACHE=$(jq --arg img "$IMAGE" --arg dig "$DIGEST" --argjson met "$METRICS_JSON" \
-            '.[$img] = {"digest": $dig, "metrics": $met}' <<< "$CACHE")
-        fi
-        echo "----"
-      done
-
-      # Remove cache entries for images that no longer exist
-      echo "Removing images that no longer exist"
-      for OLD_IMAGE in $(jq -r 'keys[]' <<< "$CACHE"); do
-        if [[ ! " ${PRESENT_IMAGES[*]} " =~ " ${OLD_IMAGE} " ]]; then
-          echo "Removed: $OLD_IMAGE"
-          CACHE=$(jq --arg img "$OLD_IMAGE" 'del(.[$img])' <<< "$CACHE")
-        fi
-      done
-
-      # Write updated cache
-      echo "Updating cache"
-      echo "$CACHE" > "$CACHE_FILE"
-      # Replace the live metrics file atomically
-      mv "$TMP_METRIC_FILE" "$METRIC_FILE"
-
-      echo "Sleeping..."
-      sleep 30
-    done
----
 apiVersion: scheduling.k8s.io/v1
 kind: PriorityClass
 metadata:
@@ -213,7 +63,7 @@ spec:
               sleep 1; /usr/local/bin/container-adoption-report
           env:
             - name: SLEEP_TIME
-              value: "30"
+              value: "120"
   #          - name: HTTP_PORT
   #            value: "9100"
   #          - name: OPENMETRICS
@@ -221,7 +71,7 @@ spec:
             #- name: DEBUG
             #  value: "TRUE"
             - name: MAX_AGE_HOURS
-              value: "1"
+              value: "12"
             - name: CHAINCTL_IDENTITY
               valueFrom:
                 secretKeyRef:
