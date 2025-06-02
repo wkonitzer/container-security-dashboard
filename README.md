@@ -36,6 +36,35 @@ helm upgrade --install kps prometheus-community/kube-prometheus-stack --namespac
 kubectl apply -f kubernetes-manifest.yaml
 ```
 
+---
+
+**If deploying on multiple clusters:**
+Set a unique cluster name for each deployment by editing the `cluster-name` ConfigMap in your manifests before deploying. For example:
+
+```yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: cluster-name
+  namespace: monitoring
+data:
+  CLUSTER_NAME: my-unique-cluster-name
+```
+
+The deployment references this value:
+
+```yaml
+- name: CLUSTER_NAME
+  valueFrom:
+    configMapKeyRef:
+      name: cluster-name
+      key: CLUSTER_NAME
+```
+
+Be sure to set a unique value for `CLUSTER_NAME` in each cluster’s `ConfigMap` for correct attribution in metrics and dashboards.
+
+---
+
 > **Note:**
 > This script is designed primarily for **Kubernetes clusters using containerd** as the container runtime.
 > It will not work with Docker-based Kubernetes nodes or CRI-O clusters.
