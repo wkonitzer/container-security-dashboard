@@ -131,6 +131,7 @@ You can run the collector as a local cron job on any Linux node (outside Kuberne
   -v /var/lib/container-security-csv:/data \
   -v /run/containerd/containerd.sock:/run/containerd/containerd.sock \
   -v /var/run/chainguard/oidc:/var/run/chainguard/oidc:ro \
+  -v /var/tmp:/tmp \
   -e WRITE_CSV=TRUE \
   -e OUTPUT_FILE=/data/adoption.csv \
   -e CHAINCTL_IDENTITY='<your-identity-string>' \
@@ -139,13 +140,26 @@ You can run the collector as a local cron job on any Linux node (outside Kuberne
   ghcr.io/wkonitzer/container-security-dashboard:latest
 ```
 
-To rotate the CSV file daily:
+---
 
-```cron
-59 23 * * * mv /var/lib/container-security-csv/adoption.csv /var/lib/container-security-csv/adoption-$(date +\%Y-\%m-\%d).csv 2>/dev/null || true
-```
+### Alternatively: Use a Long-Lived Pull Token
 
-Replace `<your-identity-string>` and `<your-cluster-name>` with your actual values. Make sure your host's `/run/containerd/containerd.sock` and `/var/run/chainguard/oidc/oidc-token` are available and readable by Docker (run as root if needed).
+If you prefer not to rely on Kubernetes tokens or need a longer-lived credential, you can **create a long-lived pull token (e.g., 1 year)** via the [Chainguard Console](https://console.enforce.dev):
+
+1. **Go to the Chainguard Console** and navigate to *Pull Tokens*.
+2. **Create a new pull token** and set the desired expiration (for example, 1 year).
+3. The console will provide you:
+   - **Username** (e.g., `a5246ba546c6364dfd5606c4381e4a378c87b7ff/8144e5885fef9585`)
+   - **Password** (the secret token value)
+
+**To use these with `chainctl`:**
+
+Copy the Password into `/var/run/chainguard/oidc/oidc-token` and set `CHAINCTL_IDENTITY=<Username>` in the docker run command above.
+
+---
+
+**Summary:**  
+You may either automate ServiceAccount token creation with `kubectl` (as above), **or** use a long-lived pull token from the Chainguard Console by setting `CHAINCTL_IDENTITY` to the User ID and putting the password in `/var/run/chainguard/oidc/oidc-token`.
 
 ---
 
