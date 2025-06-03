@@ -65,7 +65,7 @@ fi
 chainctl_login() {
   login_success=0
   for i in {1..5}; do
-    if chainctl auth login --identity "$CHAINCTL_IDENTITY" --identity-token "$CHAINCTL_IDENTITY_PATH"; then
+    if chainctl auth login --identity "$CHAINCTL_IDENTITY" --identity-token "$(cat $CHAINCTL_IDENTITY_PATH)"; then
       login_success=1
       break
     fi
@@ -82,7 +82,7 @@ chainctl_login() {
   if [ "$login_success" -eq 1 ]; then
     chainctl auth configure-docker \
       --identity "$CHAINCTL_IDENTITY" \
-      --identity-token "$CHAINCTL_IDENTITY_PATH"
+      --identity-token "$(cat $CHAINCTL_IDENTITY_PATH)"
   fi
 }  
 
