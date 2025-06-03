@@ -37,7 +37,4 @@ accounts:
       gid: 10000   
 
 entrypoint:
-  command: /bin/sh
-
-cmd: |
-  sleep infinity
+  command: /usr/local/bin/container-security-dashboard
