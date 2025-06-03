@@ -127,6 +127,7 @@ You can run the collector as a local cron job on any Linux node (outside Kuberne
 
 ```cron
 0 * * * * docker run --rm \
+  -u 0 \
   -v /var/lib/container-security-csv:/data \
   -v /run/containerd/containerd.sock:/run/containerd/containerd.sock \
   -v /var/run/chainguard/oidc:/var/run/chainguard/oidc:ro \

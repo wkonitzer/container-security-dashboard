@@ -414,6 +414,7 @@ main_openmetrics() {
 # Main CSV mode
 main_csv() {
   detect_containerd_socket || exit 3
+  chainctl_login
   ensure_cg_index
   collect_image_metrics
   generate_csv
