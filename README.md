@@ -140,26 +140,13 @@ You can run the collector as a local cron job on any Linux node (outside Kuberne
   ghcr.io/wkonitzer/container-security-dashboard:latest
 ```
 
----
+To rotate the CSV file daily:
 
-### Alternatively: Use a Long-Lived Pull Token
+```cron
+59 23 * * * mv /var/lib/container-security-csv/adoption.csv /var/lib/container-security-csv/adoption-$(date +\%Y-\%m-\%d).csv 2>/dev/null || true
+```
 
-If you prefer not to rely on Kubernetes tokens or need a longer-lived credential, you can **create a long-lived pull token (e.g., 1 year)** via the [Chainguard Console](https://console.enforce.dev):
-
-1. **Go to the Chainguard Console** and navigate to *Pull Tokens*.
-2. **Create a new pull token** and set the desired expiration (for example, 1 year).
-3. The console will provide you:
-   - **Username** (e.g., `a5246ba546c6364dfd5606c4381e4a378c87b7ff/8144e5885fef9585`)
-   - **Password** (the secret token value)
-
-**To use these with `chainctl`:**
-
-Copy the Password into `/var/run/chainguard/oidc/oidc-token` and set `CHAINCTL_IDENTITY=<Username>` in the docker run command above.
-
----
-
-**Summary:**  
-You may either automate ServiceAccount token creation with `kubectl` (as above), **or** use a long-lived pull token from the Chainguard Console by setting `CHAINCTL_IDENTITY` to the User ID and putting the password in `/var/run/chainguard/oidc/oidc-token`.
+Replace `<your-identity-string>` and `<your-cluster-name>` with your actual values. Make sure your host's `/run/containerd/containerd.sock` and `/var/run/chainguard/oidc/oidc-token` are available and readable by Docker (run as root if needed).
 
 ---
 
@@ -179,14 +166,24 @@ kubectl create token chainctl -n monitoring --duration=3600s --audience=issuer.e
   ```
 * Use this token in your Docker run command as shown above.
 
-**Automating with cron:**
+---
 
-* Add a cron line to refresh the token regularly, before running the collector:
+### Alternatively: Use a Long-Lived Pull Token
 
-  ```cron
-  # Refresh the ServiceAccount token every hour
-  0 * * * * kubectl create token chainctl -n monitoring --duration=3600s --audience=issuer.enforce.dev > /var/run/chainguard/oidc/oidc-token
-  ```
+If you prefer not to rely on Kubernetes tokens or need a longer-lived credential, you can **create a long-lived pull token (e.g., 1 year)** via the [Chainguard Console](https://console.enforce.dev):
+
+1. **Go to the Chainguard Console** and navigate to *Pull Tokens*.
+2. **Create a new pull token** and set the desired expiration (for example, 1 year).
+3. The console will provide you:
+   - **Username** (e.g., `a5246ba546c6364dfd5606c4381e4a378c87b7ff/8144e5885fef9585`)
+   - **Password** (the secret token value)
+
+**To use these with `chainctl`:**
+
+Copy the Password into `/var/run/chainguard/oidc/oidc-token` and set `CHAINCTL_IDENTITY=<Username>` in the docker run command above.
+
+**Summary:**  
+You may either automate ServiceAccount token creation with `kubectl` (as above), **or** use a long-lived pull token from the Chainguard Console by setting `CHAINCTL_IDENTITY` to the User ID and putting the password in `/var/run/chainguard/oidc/oidc-token`.
 
 ---
 
