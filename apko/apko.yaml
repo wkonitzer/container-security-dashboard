@@ -37,4 +37,4 @@ accounts:
       gid: 10000   
 
 entrypoint:
-  command: /usr/local/bin/container-security-dashboard
+  command: /usr/local/bin/container-adoption-report
