@@ -25,7 +25,7 @@ metadata:
   namespace: monitoring
 type: Opaque
 stringData:
-  CHAINCTL_IDENTITY: <id>
+  CHAINCTL_IDENTITY: a5216ba546c6364dfd5606c4381e4a378c87b7ff/50e3588c392c3308
 ---  
 apiVersion: scheduling.k8s.io/v1
 kind: PriorityClass
@@ -94,9 +94,6 @@ spec:
               memory: "256Mi"
               cpu: "500m"            
           volumeMounts:
-            - name: script
-              mountPath: /app/collector-script.sh
-              subPath: collector-script.sh
             - name: textfile-collector
               mountPath: /node-exporter
             - name: containerd-sock1
@@ -110,10 +107,6 @@ spec:
       nodeSelector:
         kubernetes.io/os: linux                                                                    
       volumes:
-        - name: script
-          configMap:
-            name: container-security-script
-            defaultMode: 0755
         - name: textfile-collector
           hostPath:
             path: /var/lib/node_exporter/textfile_collector
