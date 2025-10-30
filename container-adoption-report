@@ -224,26 +224,7 @@ collect_image_metrics() {
   
   NUM_IMAGES=$(echo "$CRICTL_JSON" | jq '.images | length')
   IMAGES=""
-  if [ "$NUM_IMAGES" -gt 0 ]; then
-    # Use BOTH repoTags and repoDigests; some images are pulled only by digest.
-    IMAGES=$(echo "$CRICTL_JSON" \
-      | jq -r '
-          .images[]? |
-          (
-            (.repoTags // [])[]?,
-            (.repoDigests // [])[]?
-          )
-        ' 2>/dev/null | awk "NF" | sort -u | tr "\n" " ")
-  fi
-  info "Detected $NUM_IMAGES image records; targeting $(printf '%s\n' $IMAGES | wc -w) refs (tags+digests)."  
-
-  # === Debug: report what we saw ===
-  COUNT_IMGS=$(printf '%s\n' $IMAGES | wc -w)
-  info "Targeting $COUNT_IMGS image references (tags + digests)."
-  if [ "${DEBUG:-}" = "TRUE" ]; then
-    info "First 10 image refs:"
-    printf '%s\n' $IMAGES | head -n 10 >&2
-  fi  
+  [ "$NUM_IMAGES" -gt 0 ] && IMAGES=$(echo "$CRICTL_JSON" | jq -r '.images[]?.repoTags[]?' 2>/dev/null | tr '\n' ' ')
 
   # Load cache
   CACHE=$(cat "$CACHE_FILE")
