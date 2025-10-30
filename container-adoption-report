@@ -438,6 +438,7 @@ main_default() {
     TMP_METRIC_FILE="${METRIC_FILE}.tmp"
     cp "$METRICS_CACHE" "$TMP_METRIC_FILE"
     mv "$TMP_METRIC_FILE" "$METRIC_FILE"
+    chmod 0644 "$METRIC_FILE"
     info "Sleeping..."
     sleep "$SLEEP_TIME"
     info "---"
