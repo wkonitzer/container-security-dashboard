@@ -214,9 +214,16 @@ collect_image_metrics() {
       --runtime-endpoint "$CONTAINER_RUNTIME_ENDPOINT" \
       --image-endpoint   "$IMAGE_SERVICE_ENDPOINT" \
       --namespace "$NS" images -o json 2>/dev/null || echo '{"images":[]}')
-    # Merge .images arrays
-    CRICTL_JSON=$(jq -s '[.[].images] | {images: add}' \
-                    <(echo "$CRICTL_JSON") <(echo "$PART"))
+
+    echo "$PART" | jq -e . >/dev/null 2>&1 || {
+      info "WARN: crictl output was not valid JSON for ns=$NS (using empty set)"
+      PART='{"images":[]}'
+    }
+
+    # Merge .images arrays (no process substitution)
+    CRICTL_JSON="$( jq -c --argjson part "$PART" '
+        { images: (.images + ($part.images // [])) }
+      ' <<<"$CRICTL_JSON" )"                    
   done
   echo "$CRICTL_JSON" | jq -e '.' >/dev/null 2>&1 || {
     info "ERROR: failed to assemble images JSON from crictl."
