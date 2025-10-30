@@ -75,7 +75,7 @@ chainctl_login() {
 
   if [ "$login_success" -ne 1 ]; then
     echo "chainctl login failed after retries!"
-    return 1
+    exit 1
   fi
 
   # Only configure Docker auth if login was successful
@@ -116,10 +116,10 @@ ensure_cg_index() {
     info "Index file missing, building for the first time..."
   fi
 
-  CHAINCTL_OUTPUT=$(chainctl image list --output=terse) || { info "chainctl failed!"; return 2; }
+  CHAINCTL_OUTPUT=$(chainctl image list --output=terse) || { info "chainctl failed!"; exit 2; }
   if [ -z "$CHAINCTL_OUTPUT" ]; then
     info "No images returned by chainctl; skipping index build this round."
-    return 2
+    exit 2
   fi
   > "$INDEX_FILE"  
 
