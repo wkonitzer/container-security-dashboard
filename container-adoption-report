@@ -158,21 +158,27 @@ ensure_cg_index() {
 # Containerd socket detection
 detect_containerd_socket() {
   for sock in \
+    /run/k0s/containerd.sock \
     /run/containerd/containerd.sock \
     /run/k3s/containerd/containerd.sock \
-    /run/k0s/containerd.sock \
-    /var/run/docker.sock; do
-    if [ -S "$sock" ]; then
-      crictl --runtime-endpoint "unix://$sock" images >/dev/null 2>&1
-      if [ $? -eq 0 ]; then
-        export CONTAINER_RUNTIME_ENDPOINT="unix://$sock"
-        export IMAGE_SERVICE_ENDPOINT="unix://$sock"
-        info "Detected working CRI endpoint=$CONTAINER_RUNTIME_ENDPOINT"
-        return 0
-      fi
+    /var/run/docker.sock;
+  do
+    [ -S "$sock" ] || continue
+    if crictl --config /dev/null --runtime-endpoint "unix://$sock" ps -o json 2>/dev/null \
+       | jq -e '.containers' >/dev/null; then
+      export CONTAINER_RUNTIME_ENDPOINT="unix://$sock"
+      export IMAGE_SERVICE_ENDPOINT="unix://$sock"
+      info "Detected CRI via crictl: $CONTAINER_RUNTIME_ENDPOINT"
+      return 0
+    fi
+    if ctr --address "$sock" -n k8s.io containers list >/dev/null 2>&1; then
+      export CONTAINER_RUNTIME_ENDPOINT="unix://$sock"
+      export IMAGE_SERVICE_ENDPOINT="unix://$sock"
+      info "Detected containerd via ctr: $CONTAINER_RUNTIME_ENDPOINT"
+      return 0
     fi
   done
-  info "No working containerd socket found!"
+  info "No working container runtime endpoint found!"
   return 1
 }
 
