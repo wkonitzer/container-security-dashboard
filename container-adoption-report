@@ -5,7 +5,7 @@
 # Copyright (c) 2025 Chainguard, Inc.
 # SPDX-License-Identifier: MIT
 
-set -eu
+#set -eu
 
 # Restrictive permissions for new files
 umask 022
