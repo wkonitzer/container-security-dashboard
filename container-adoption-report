@@ -193,6 +193,11 @@ discover_cri_namespaces() {
   fi
 }
 
+crictl_supports_namespace() {
+  # works even on older crictl: grep for the flag in help output
+  crictl images --help 2>&1 | grep -q -- '--namespace'
+}
+
 # Image metrics collector (BusyBox sh)
 collect_image_metrics() {
   ARCH=$(uname -m)
@@ -205,31 +210,42 @@ collect_image_metrics() {
   touch "$CACHE_FILE"
   [ ! -s "$CACHE_FILE" ] && echo '{}' > "$CACHE_FILE"
 
-  # Merge images across *all* containerd namespaces
-  NS_LIST="$(discover_cri_namespaces)"
-  info "Scanning containerd namespaces: ${NS_LIST}"
-  CRICTL_JSON='{"images":[]}'
-  for NS in $NS_LIST; do
-    PART=$(crictl \
+  # Get images JSON from CRI
+  if crictl_supports_namespace; then
+    NS_LIST="$(discover_cri_namespaces)"
+    info "Scanning containerd namespaces (crictl supports --namespace): ${NS_LIST}"
+    CRICTL_JSON='{"images":[]}'
+    for NS in $NS_LIST; do
+      PART="$(crictl --timeout 10s \
+        --runtime-endpoint "$CONTAINER_RUNTIME_ENDPOINT" \
+        --image-endpoint   "$IMAGE_SERVICE_ENDPOINT" \
+        --namespace "$NS" images -o json 2>&1 || true)"
+      if ! echo "$PART" | jq -e . >/dev/null 2>&1; then
+        info "WARN: crictl JSON invalid for ns=$NS; first line: $(printf '%s' "$PART" | head -n1)"
+        PART='{"images":[]}'
+      fi
+      CRICTL_JSON="$( jq -c --argjson part "$PART" \
+        '{ images: (.images + ($part.images // [])) }' <<<"$CRICTL_JSON" )"
+    done
+  else
+    info "crictl has no --namespace flag; using plain CRI call"
+    PART="$(crictl --timeout 10s \
       --runtime-endpoint "$CONTAINER_RUNTIME_ENDPOINT" \
       --image-endpoint   "$IMAGE_SERVICE_ENDPOINT" \
-      --namespace "$NS" images -o json 2>/dev/null || echo '{"images":[]}')
-
-    echo "$PART" | jq -e . >/dev/null 2>&1 || {
-      info "WARN: crictl output was not valid JSON for ns=$NS (using empty set)"
+      images -o json 2>&1 || true)"
+    if ! echo "$PART" | jq -e . >/dev/null 2>&1; then
+      info "ERROR: crictl images returned non-JSON; first line: $(printf '%s' "$PART" | head -n1)"
       PART='{"images":[]}'
-    }
+    fi
+    CRICTL_JSON="$PART"
+  fi
 
-    # Merge .images arrays (no process substitution)
-    CRICTL_JSON="$( jq -c --argjson part "$PART" '
-        { images: (.images + ($part.images // [])) }
-      ' <<<"$CRICTL_JSON" )"                    
-  done
-  echo "$CRICTL_JSON" | jq -e '.' >/dev/null 2>&1 || {
-    info "ERROR: failed to assemble images JSON from crictl."
-    exit 2
-  }  
-
+  # Sanity check
+  echo "$CRICTL_JSON" | jq -e '.images' >/dev/null 2>&1 || {
+    info "ERROR: failed to assemble images JSON from crictl; proceeding with empty set"
+    CRICTL_JSON='{"images":[]}'
+  }
+  
   NUM_IMAGES=$(echo "$CRICTL_JSON" | jq '.images | length')
   IMAGES=""
   if [ "$NUM_IMAGES" -gt 0 ]; then
