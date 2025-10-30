@@ -75,7 +75,7 @@ chainctl_login() {
 
   if [ "$login_success" -ne 1 ]; then
     echo "chainctl login failed after retries!"
-    exit 1
+    return 1
   fi
 
   # Only configure Docker auth if login was successful
@@ -116,10 +116,10 @@ ensure_cg_index() {
     info "Index file missing, building for the first time..."
   fi
 
-  CHAINCTL_OUTPUT=$(chainctl image list --output=terse) || { info "chainctl failed!"; exit 2; }
+  CHAINCTL_OUTPUT=$(chainctl image list --output=terse) || { info "chainctl failed!"; return 2; }
   if [ -z "$CHAINCTL_OUTPUT" ]; then
-    info "No images returned by chainctl; aborting index build."
-    exit 2
+    info "No images returned by chainctl; skipping index build this round."
+    return 2
   fi
   > "$INDEX_FILE"  
 
@@ -148,8 +148,8 @@ ensure_cg_index() {
   wait
 
   if [ ! -s "$INDEX_FILE" ]; then
-    info "ERROR: Base index build failed or is empty!"
-    exit 3
+    info "ERROR: Base index build failed or is empty! Will retry next loop."
+    return 3
   fi
 
   info "Chainguard base layer index rebuilt: $INDEX_FILE ($(wc -l < "$INDEX_FILE") lines)"
@@ -176,6 +176,23 @@ detect_containerd_socket() {
   return 1
 }
 
+# Strip "unix://" and return the containerd socket path for ctr
+containerd_addr() {
+  echo "${CONTAINER_RUNTIME_ENDPOINT#unix://}"
+}
+
+# Use ctr to list containerd namespaces. Fallback to common ones if ctr fails.
+discover_cri_namespaces() {
+  local addr
+  addr="$(containerd_addr)"
+  if ns_list=$(ctr --address "$addr" namespaces list -q 2>/dev/null) && [ -n "$ns_list" ]; then
+    echo "$ns_list"
+  else
+    # sensible fallbacks if ctr is unavailable or returns nothing
+    echo "k8s.io moby default k3s.io k0s.io cri-containerd"
+  fi
+}
+
 # Image metrics collector (BusyBox sh)
 collect_image_metrics() {
   ARCH=$(uname -m)
@@ -188,11 +205,23 @@ collect_image_metrics() {
   touch "$CACHE_FILE"
   [ ! -s "$CACHE_FILE" ] && echo '{}' > "$CACHE_FILE"
 
-  CRICTL_JSON=$(crictl images -o json 2>/dev/null)
+  # Merge images across *all* containerd namespaces
+  NS_LIST="$(discover_cri_namespaces)"
+  info "Scanning containerd namespaces: ${NS_LIST}"
+  CRICTL_JSON='{"images":[]}'
+  for NS in $NS_LIST; do
+    PART=$(crictl \
+      --runtime-endpoint "$CONTAINER_RUNTIME_ENDPOINT" \
+      --image-endpoint   "$IMAGE_SERVICE_ENDPOINT" \
+      --namespace "$NS" images -o json 2>/dev/null || echo '{"images":[]}')
+    # Merge .images arrays
+    CRICTL_JSON=$(jq -s '[.[].images] | {images: add}' \
+                    <(echo "$CRICTL_JSON") <(echo "$PART"))
+  done
   echo "$CRICTL_JSON" | jq -e '.' >/dev/null 2>&1 || {
-    info "ERROR: crictl did not return valid JSON. Aborting image scan."
+    info "ERROR: failed to assemble images JSON from crictl."
     exit 2
-  }
+  }  
 
   NUM_IMAGES=$(echo "$CRICTL_JSON" | jq '.images | length')
   IMAGES=""
@@ -205,11 +234,11 @@ collect_image_metrics() {
             (.repoTags // [])[]?,
             (.repoDigests // [])[]?
           )
-        ' 2>/dev/null | awk 'NF' | sort -u | tr '\n' ' ')
+        ' 2>/dev/null | awk "NF" | sort -u | tr "\n" " ")
   fi
+  info "Detected $NUM_IMAGES image records; targeting $(printf '%s\n' $IMAGES | wc -w) refs (tags+digests)."  
 
   # === Debug: report what we saw ===
-  info "Detected $NUM_IMAGES total image records from crictl."
   COUNT_IMGS=$(printf '%s\n' $IMAGES | wc -w)
   info "Targeting $COUNT_IMGS image references (tags + digests)."
   if [ "${DEBUG:-}" = "TRUE" ]; then
@@ -276,21 +305,15 @@ collect_image_metrics() {
 
       [ -z "$VENDOR" ] && VENDOR="unknown"   
 
-      NAME=$(echo "$IMAGE" | cut -d':' -f1)
-      VERSION=$(echo "$IMAGE" | cut -d':' -f2)
-
-      # Parse image ref robustly:
-      # - If it's name@sha256:..., keep NAME before @ and VERSION as the digest
-      # - Else split name:tag on the LAST ':' (to allow registries with ports)
-      if printf '%s' "$IMAGE" | grep -q '@sha256:'; then
-        NAME="${IMAGE%@*}"
-        VERSION="${IMAGE##*@}"
-      else
-        NAME="${IMAGE%:*}"
-        VERSION="${IMAGE##*:}"
-        # If there was no tag (rare), fall back to "latest"
-        [ "$NAME" = "$VERSION" ] && VERSION="latest"
-      fi      
+     # Robust ref parsing (handles name@sha256:... and registries with ports)
+     if printf '%s' "$IMAGE" | grep -q '@sha256:'; then
+       NAME="${IMAGE%@*}"
+       VERSION="${IMAGE##*@}"
+     else
+       NAME="${IMAGE%:*}"
+       VERSION="${IMAGE##*:}"
+       [ "$NAME" = "$VERSION" ] && VERSION="latest"
+     fi     
 
       info "Extracting size.."
       SIZE=$(crane manifest "$IMAGE" --platform="$PLATFORM" 2>/dev/null | jq '[.layers[].size] | add // 0' 2>/dev/null || echo 0)

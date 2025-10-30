@@ -21,6 +21,7 @@ contents:
     - trivy
     - crane
     - cri-tools
+    - ctr
     - busybox-full
     - chainctl@local
     - container-adoption-report@local
