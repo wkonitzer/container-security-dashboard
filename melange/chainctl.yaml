@@ -22,9 +22,23 @@ environment:
       - curl    
 
 pipeline:
-  - name: Download chainctl
+  - name: Download chainctl (always latest, cache-busted)
     runs: |
-      curl -o chainctl "https://dl.enforce.dev/chainctl/latest/chainctl_$(uname -s | tr '[:upper:]' '[:lower:]')_$(uname -m | sed 's/aarch64/arm64/')"
+      set -euo pipefail
+      OS="$(uname -s | tr '[:upper:]' '[:lower:]')"          # linux or darwin
+      ARCH="$(uname -m | sed 's/aarch64/arm64/')"            # normalize
+      TS="$(date +%s)"                                       # unique per build
+      URL="https://dl.enforce.dev/chainctl/latest/chainctl_${OS}_${ARCH}?ts=${TS}"
+
+      rm -f chainctl
+      curl -fL --show-error --retry 5 --retry-connrefused \
+        -H 'Cache-Control: no-cache, no-store, max-age=0' \
+        -H 'Pragma: no-cache' \
+        -o chainctl "${URL}"
+      chmod +x chainctl
+
+      # Optional: print the version we actually got
+      ./chainctl version || true
 
   - name: Install chainctl
     runs: |
