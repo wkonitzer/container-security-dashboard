@@ -219,7 +219,7 @@ collect_image_metrics() {
       PART="$(crictl --timeout 10s \
         --runtime-endpoint "$CONTAINER_RUNTIME_ENDPOINT" \
         --image-endpoint   "$IMAGE_SERVICE_ENDPOINT" \
-        --namespace "$NS" images -o json 2>&1 || true)"
+        --namespace "$NS" images -o json || true)"
       if ! echo "$PART" | jq -e . >/dev/null 2>&1; then
         info "WARN: crictl JSON invalid for ns=$NS; first line: $(printf '%s' "$PART" | head -n1)"
         PART='{"images":[]}'
@@ -229,15 +229,19 @@ collect_image_metrics() {
     done
   else
     info "crictl has no --namespace flag; using plain CRI call"
-    PART="$(crictl --timeout 10s \
+    PART_JSON_FILE="$(mktemp)"; PART_ERR_FILE="$(mktemp)"
+    crictl --timeout 10s \
+      --config /dev/null \
       --runtime-endpoint "$CONTAINER_RUNTIME_ENDPOINT" \
       --image-endpoint   "$IMAGE_SERVICE_ENDPOINT" \
-      images -o json 2>&1 || true)"
+      images -o json 1>"$PART_JSON_FILE" 2>"$PART_ERR_FILE" || true
+    PART="$(cat "$PART_JSON_FILE")"
     if ! echo "$PART" | jq -e . >/dev/null 2>&1; then
-      info "ERROR: crictl images returned non-JSON; first line: $(printf '%s' "$PART" | head -n1)"
+      info "ERROR: crictl images returned non-JSON; first line: $(head -n1 "$PART_ERR_FILE")"
       PART='{"images":[]}'
     fi
     CRICTL_JSON="$PART"
+    rm -f "$PART_JSON_FILE" "$PART_ERR_FILE"
   fi
 
   # Sanity check
