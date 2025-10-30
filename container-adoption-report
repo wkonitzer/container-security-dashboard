@@ -210,44 +210,10 @@ collect_image_metrics() {
   touch "$CACHE_FILE"
   [ ! -s "$CACHE_FILE" ] && echo '{}' > "$CACHE_FILE"
 
-  # Get images JSON from CRI
-  if crictl_supports_namespace; then
-    NS_LIST="$(discover_cri_namespaces)"
-    info "Scanning containerd namespaces (crictl supports --namespace): ${NS_LIST}"
-    CRICTL_JSON='{"images":[]}'
-    for NS in $NS_LIST; do
-      PART="$(crictl --timeout 10s \
-        --runtime-endpoint "$CONTAINER_RUNTIME_ENDPOINT" \
-        --image-endpoint   "$IMAGE_SERVICE_ENDPOINT" \
-        --namespace "$NS" images -o json || true)"
-      if ! echo "$PART" | jq -e . >/dev/null 2>&1; then
-        info "WARN: crictl JSON invalid for ns=$NS; first line: $(printf '%s' "$PART" | head -n1)"
-        PART='{"images":[]}'
-      fi
-      CRICTL_JSON="$( jq -c --argjson part "$PART" \
-        '{ images: (.images + ($part.images // [])) }' <<<"$CRICTL_JSON" )"
-    done
-  else
-    info "crictl has no --namespace flag; using plain CRI call"
-    PART_JSON_FILE="$(mktemp)"; PART_ERR_FILE="$(mktemp)"
-    crictl --timeout 10s \
-      --config /dev/null \
-      --runtime-endpoint "$CONTAINER_RUNTIME_ENDPOINT" \
-      --image-endpoint   "$IMAGE_SERVICE_ENDPOINT" \
-      images -o json 1>"$PART_JSON_FILE" 2>"$PART_ERR_FILE" || true
-    PART="$(cat "$PART_JSON_FILE")"
-    if ! echo "$PART" | jq -e . >/dev/null 2>&1; then
-      info "ERROR: crictl images returned non-JSON; first line: $(head -n1 "$PART_ERR_FILE")"
-      PART='{"images":[]}'
-    fi
-    CRICTL_JSON="$PART"
-    rm -f "$PART_JSON_FILE" "$PART_ERR_FILE"
-  fi
-
-  # Sanity check
-  echo "$CRICTL_JSON" | jq -e '.images' >/dev/null 2>&1 || {
-    info "ERROR: failed to assemble images JSON from crictl; proceeding with empty set"
-    CRICTL_JSON='{"images":[]}'
+  CRICTL_JSON=$(crictl images -o json 2>/dev/null)
+  echo "$CRICTL_JSON" | jq -e '.' >/dev/null 2>&1 || {
+    info "ERROR: crictl did not return valid JSON. Aborting image scan."
+    exit 2
   }
   
   NUM_IMAGES=$(echo "$CRICTL_JSON" | jq '.images | length')
