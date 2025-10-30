@@ -8,7 +8,7 @@
 set -eu
 
 # Restrictive permissions for new files
-umask 077
+umask 022
 
 # Config
 SLEEP_TIME="${SLEEP_TIME:-300}"
