@@ -25,7 +25,7 @@ metadata:
   namespace: monitoring
 type: Opaque
 stringData:
-  CHAINCTL_IDENTITY: a5216ba546c6364dfd5606c4381e4a378c87b7ff/50e3588c392c3308
+  CHAINCTL_IDENTITY: a5216ba546c6364dfd5606c4381e4a378c87b7ff/a9b7c09fe82513ad
 ---  
 apiVersion: scheduling.k8s.io/v1
 kind: PriorityClass
@@ -70,6 +70,10 @@ spec:
   #            value: "TRUE"  
             #- name: DEBUG
             #  value: "TRUE"
+            - name: CONTAINER_RUNTIME_ENDPOINT
+              value: unix:///run/k0s/containerd.sock
+            - name: IMAGE_SERVICE_ENDPOINT
+              value: unix:///run/k0s/containerd.sock            
             - name: MAX_AGE_HOURS
               value: "12"
             - name: CHAINCTL_IDENTITY
@@ -88,11 +92,11 @@ spec:
                   fieldPath: spec.nodeName            
           resources:
             requests:
-              memory: "64Mi"
-              cpu: "100m"
+              memory: "500Mi"
+              cpu: "500m"
             limits:
-              memory: "256Mi"
-              cpu: "500m"            
+              memory: "900Mi"
+              cpu: "900m"            
           volumeMounts:
             - name: textfile-collector
               mountPath: /node-exporter

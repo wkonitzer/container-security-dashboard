@@ -303,7 +303,7 @@ collect_image_metrics() {
 node_container_image_size_bytes{image=\"$NAME\",version=\"$VERSION\",vendor=\"$VENDOR\",node=\"$HOSTNODE_NAME\",cluster=\"$CLUSTER_NAME\"} $SIZE"
 
       info "Running Trivy..."
-      TRIVY_OUTPUT=$(trivy image --severity CRITICAL,HIGH,MEDIUM,LOW --format json "$IMAGE" 2>/dev/null || echo "")
+      TRIVY_OUTPUT=$(trivy image --scanners vuln --severity CRITICAL,HIGH,MEDIUM,LOW --format json "$IMAGE" 2>/dev/null || echo "")
       if [ -n "$TRIVY_OUTPUT" ]; then
         for sev in CRITICAL HIGH MEDIUM LOW; do
           COUNT=$(echo "$TRIVY_OUTPUT" | jq "[.Results[]? | .Vulnerabilities? // [] | .[]? | select(.Severity == \"$sev\")] | length" 2>/dev/null || echo 0)
